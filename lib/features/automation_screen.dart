@@ -1,3 +1,4 @@
+// Overview: Presents tracking consent, utility imports, and the candidate review queue.
 import 'dart:async';
 import 'dart:convert';
 

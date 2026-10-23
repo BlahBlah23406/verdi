@@ -1,3 +1,4 @@
+// Overview: Converts native location events into typed Dart location samples.
 import 'package:flutter/services.dart';
 
 import '../domain/automation.dart';

@@ -1,5 +1,7 @@
 # From business plan to pilot
 
+Maps the business plan to implemented foundations and future product milestones.
+
 ## First slice — implemented
 
 - Flutter project with Android, iOS and web runners.

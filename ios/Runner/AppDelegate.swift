@@ -1,3 +1,4 @@
+// Overview: Registers Flutter plugins and streams foreground iOS location updates with permission handling.
 import Flutter
 import UIKit
 import CoreLocation

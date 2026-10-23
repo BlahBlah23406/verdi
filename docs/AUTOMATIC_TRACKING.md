@@ -1,5 +1,7 @@
 # Automatic tracking implementation
 
+Explains automatic ingestion, consent, reconciliation, and required device acceptance checks.
+
 The business plan's Solutions section makes phone and consumer-data collection central. The first implemented path is:
 
 Phone location / normalized utility export → validate → derive activity candidates → check existing records → user review → versioned carbon estimate → dashboard.

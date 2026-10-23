@@ -1,3 +1,4 @@
+# Overview: Excludes generated files and local settings for the android platform.
 gradle-wrapper.jar
 /.gradle
 /captures/

@@ -1,3 +1,4 @@
+// Overview: Persists pending activity candidates and discarded record identities.
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';

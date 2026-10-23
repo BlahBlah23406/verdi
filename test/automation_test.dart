@@ -1,3 +1,4 @@
+// Overview: Checks automatic ingestion, review-queue persistence, and confirmation into the activity journal.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:verdi/features/automation_screen.dart';

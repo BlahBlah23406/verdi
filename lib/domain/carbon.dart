@@ -1,3 +1,4 @@
+// Overview: Defines activity records and calculates period totals, category breakdowns, and travel comparisons.
 import 'emission_factors.dart';
 
 // Legacy kinds remain readable; new entries use the supported pilot catalog.

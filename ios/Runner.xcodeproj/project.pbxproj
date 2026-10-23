@@ -1,4 +1,5 @@
 // !$*UTF8*$!
+// Overview: Defines Xcode targets, file references, build phases, and app build settings.
 {
 	archiveVersion = 1;
 	classes = {

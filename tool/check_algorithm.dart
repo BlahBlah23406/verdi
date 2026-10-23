@@ -1,3 +1,4 @@
+// Overview: Runs standalone calculation checks without the Flutter test runner.
 // Direct checks for environments where Flutter test cannot open a local socket.
 import 'dart:io';
 

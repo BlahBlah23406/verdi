@@ -1,3 +1,4 @@
+// Overview: Defines the versioned EPA emission factors, unit conversions, and source metadata.
 /// Pinned EPA 2025 dataset; see docs/ALGORITHM.md for boundaries.
 class EmissionFactor {
   const EmissionFactor(

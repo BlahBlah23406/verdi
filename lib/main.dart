@@ -1,3 +1,4 @@
+// Overview: Starts the Flutter app and builds the overview, journal, comparison, and tracking navigation.
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 

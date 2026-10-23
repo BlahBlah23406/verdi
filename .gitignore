@@ -1,3 +1,4 @@
+# Overview: Excludes local tools, generated build output, and machine-specific files from Git.
 # Miscellaneous
 *.class
 *.log

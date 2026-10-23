@@ -1,3 +1,4 @@
+// Overview: Loads and saves confirmed activities in device-local preferences.
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';

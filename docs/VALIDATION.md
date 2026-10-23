@@ -1,5 +1,7 @@
 # Validation — 2026-10-23
 
+Records completed checks, environment limitations, and outstanding validation.
+
 - `flutter analyze`: passed with no issues.
 - `dart run tool/check_algorithm.dart`: 24 algorithm checks passed, including invalid inputs, serialization, historical factors, date windows, duplicate IDs, totals, scenarios, EPA reference conversions, source persistence and legacy compatibility.
 - `flutter test`: blocked before tests ran because this environment denied binding the test runner's localhost socket. Algorithm/store and widget tests are included, but their Flutter-runner results are unverified.

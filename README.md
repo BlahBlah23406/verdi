@@ -1,45 +1,38 @@
 # Verdi 🌱
 
+Introduces Verdi, its automatic tracking algorithm, and the current development focus.
+
 I'm building Verdi to automatically turn everyday activity into a clearer picture of personal carbon emissions—and help people reduce them.
 
 **Automatic tracking is the core product:** with the user's permission, phone signals and consumer data should identify journeys, electricity use and other activities, reconcile overlapping evidence, and feed a transparent emissions engine. Manual logging is a fallback.
 
-## What works in this prototype
+## Current focus: prepping for DubHacks Next
 
-- **Phone trip detection:** Android and iOS location streams, explicit permission, distance calculation, quality filtering and journey segmentation while the app is open.
-- **Review queue:** detected journeys are saved as summaries. Users confirm transport mode before an estimate enters their footprint. Raw coordinates are not saved or uploaded.
-- **Consumer-data import:** choose a normalized utility CSV; daily electricity readings become reviewable estimates automatically. This is an import, not a live utility-account connection.
-- **Duplicate checks:** repeated utility record IDs are skipped; conflicting records within a file are rejected. Overlapping logged activity must be resolved before confirmation.
-- **Personal footprint:** local saving, monthly category totals, calculation provenance, basic category-based guidance and travel comparisons.
-- **Rewards preview:** hypothetical eco-points; no redeemable balance or cash rewards yet.
+Verdi is in development, not a released app. I'm working on the Flutter implementation and the algorithm that connects phone activity and consumer data to explainable emissions estimates. The code has initial checks, but the complete app still needs device testing and validation.
 
-**Implemented does not mean device-validated:** the native location code has compile/type checks, but permissions, GPS behavior, battery use and end-to-end tracking still need real-device testing. Tracking stops when the app leaves the foreground; always-on background tracking is not implemented.
+The current implementation explores foreground phone trip detection, utility-data imports, activity review, duplicate checks, and carbon calculations. Always-on background tracking, live banking and utility connections, automatic transport-mode classification, real offsets, and redeemable rewards are future work.
 
-Live banking, smart-home and travel-account connections, automatic transport-mode classification, real offsets, and reward redemption remain to be built. They need provider integrations, a backend and verification rules. We do not infer accurate purchase emissions from transaction amounts alone.
+## From everyday data to an estimate
 
-## Try automatic tracking
-
-1. Run the app on an Android or iOS device and open **Auto track**.
-2. Tap **Enable phone tracking**, read the consent notice and allow precise location.
-3. Keep Verdi open during the journey. A segment of at least 100 metres and 60 seconds is queued after two minutes stationary, a location gap, or stopping tracking.
-4. Review the detected distance and choose the actual mode. Discard walking, unsupported modes or incorrect detections.
-5. Confirm to add the estimate to your journal and monthly footprint.
-
-The detector uses timestamped coordinates and accuracy, not a trained model. It cannot reliably distinguish car, bus, train or cycling from speed alone. Segmentation thresholds are initial engineering assumptions that need field calibration. Interrupted segments are labeled partial; no distance is filled in across missing data.
-
-## Import utility readings
-
-Under **Auto track**, enter a consistent utility-account nickname and choose a CSV with this exact format:
-
-```csv
-record_id,date,kwh
-reading-001,2026-01-01,12.5
-reading-002,2026-01-02,10.2
+```text
+Consented phone signals + consumer data
+                  ↓
+       Validate and filter evidence
+                  ↓
+       Detect activity candidates
+                  ↓
+       Check duplicates and review
+                  ↓
+       Apply a sourced emission factor
+                  ↓
+       Explain impact and alternatives
 ```
 
-Use daily consumption (not cumulative meter readings), stable provider record IDs, ISO dates and positive kWh. Normalize your provider's export to these columns first. The importer accepts up to 1,000 rows / 1 MB and rejects the entire file if validation fails. Quoted CSV fields are not supported. Reusing the nickname and IDs prevents reimporting accepted, queued or discarded records. Account nicknames distinguish accounts; they are not credentials.
+**Phone signals:** timestamped location samples provide a starting point for detecting journeys. The current detector filters inaccurate fixes and implausible jumps, estimates distance, and separates segments at stops or signal gaps. It requires at least 100 metres and 60 seconds for a candidate. These thresholds need field calibration. Transport mode still needs confirmation because speed alone cannot reliably distinguish a car, bus, train or bicycle.
 
-Review each reading before confirmation. Electricity is assigned to the reading's calendar day using the current US-average factor. Monthly bills, live utility polling, regional grids and provider-specific formats are not yet supported.
+**Consumer data:** daily electricity readings are the first import path. The algorithm validates dates and kWh quantities, associates records with an account and stable record ID, and checks for duplicates before creating activity candidates. Live provider connections are part of the longer-term vision; the current code works with normalized utility files.
+
+**Review and traceability:** only confirmed candidates enter the footprint. The current implementation stores trip summaries rather than raw coordinates, and preserves each activity's data source and calculation assumptions. Missing evidence is treated as a coverage gap, not proof of zero emissions.
 
 ## How our algorithm works
 
@@ -55,7 +48,7 @@ Verdi uses a rule-based ingestion and calculation pipeline. Phone location and i
 
    CO₂e means carbon dioxide equivalent: a common unit for comparing greenhouse gases.
 
-4. **Keep the calculation traceable.** Each entry saves the factor value, version, source and assumptions used. Future factor updates do not silently rewrite previous entries. Tap an entry to inspect its calculation.
+4. **Keep the calculation traceable.** Each entry saves the factor value, version, source and assumptions used. Future factor updates do not silently rewrite previous entries. This makes previous estimates explainable and reproducible.
 5. **Build the monthly picture.** Select entries within the current calendar month, ignore duplicate IDs, and sum emissions by category. Old demo entries remain in the journal but are excluded from pilot totals.
 
 ### Where the factors come from
@@ -93,19 +86,9 @@ The app calculates with full precision and rounds only for display. This compari
 
 The calculation engine lives in [carbon.dart](lib/domain/carbon.dart), with the versioned catalog in [emission_factors.dart](lib/domain/emission_factors.dart). See [the algorithm notes](docs/ALGORITHM.md) for conversion formulas and remaining validation work.
 
-## Run locally
+## Project notes
 
-```sh
-flutter pub get
-flutter run -d chrome
-```
-
-For phone tracking, use `flutter devices` and `flutter run -d <device-id>` on a configured Android/iOS device. Web supports the dashboard and file imports, but not native phone tracking.
-
-```sh
-flutter analyze
-flutter test
-dart run tool/check_automation.dart
-```
-
-See [the build roadmap](docs/ROADMAP.md), [algorithm notes](docs/ALGORITHM.md), and [automatic tracking implementation and device checks](docs/AUTOMATIC_TRACKING.md).
+- [Algorithm details](docs/ALGORITHM.md)
+- [Automatic tracking design and remaining validation](docs/AUTOMATIC_TRACKING.md)
+- [Build roadmap](docs/ROADMAP.md)
+- [File overview](docs/FILES.md)

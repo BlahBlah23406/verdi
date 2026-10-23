@@ -1,3 +1,4 @@
+// Overview: Segments location samples into trips, parses utility readings, and checks activity overlap.
 import 'dart:convert';
 import 'dart:math' as math;
 

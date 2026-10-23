@@ -1,3 +1,4 @@
+// Overview: Runs standalone trip-detection, import-validation, and reconciliation checks.
 import 'dart:io';
 
 import 'package:verdi/domain/automation.dart';

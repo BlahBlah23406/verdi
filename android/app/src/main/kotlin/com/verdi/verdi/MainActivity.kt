@@ -1,3 +1,4 @@
+// Overview: Bridges Android foreground GPS and permission events into the Flutter location stream.
 package com.verdi.verdi
 
 import android.Manifest

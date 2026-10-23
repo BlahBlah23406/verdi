@@ -1,3 +1,4 @@
+// Overview: Configures shared Android build repositories, output locations, and cleanup.
 allprojects {
     repositories {
         google()

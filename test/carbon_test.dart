@@ -1,3 +1,4 @@
+// Overview: Checks emissions calculations, historical factors, reporting periods, and activity persistence.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:verdi/data/activity_store.dart';

@@ -1,3 +1,4 @@
+# Overview: Declares the Flutter app, SDK constraints, dependencies, and bundled resources.
 name: verdi
 description: Personal carbon tracking and reduction prototype.
 publish_to: none

@@ -1,5 +1,7 @@
 # US pilot calculation engine
 
+Documents emission formulas, factor sources, calculation boundaries, and remaining validation.
+
 The pilot covers commuting and home electricity. New entries use a pinned, source-backed catalog. This is a first implementation against published tables, not independent scientific validation or certification.
 
 ## Reference and conversion

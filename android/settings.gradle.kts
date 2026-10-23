@@ -1,3 +1,4 @@
+// Overview: Locates the Flutter SDK and declares Android build plugins and modules.
 pluginManagement {
     val flutterSdkPath =
         run {
