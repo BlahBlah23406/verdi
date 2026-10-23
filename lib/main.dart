@@ -82,10 +82,11 @@ class _HomeState extends State<Home> {
       await widget.store.save(next);
       if (mounted) setState(() => activities = next);
     } catch (_) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not save. Please try again.')),
         );
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -404,12 +405,13 @@ class _HomeState extends State<Home> {
                                 ],
                               ),
                             );
-                            if (confirmed == true && mounted)
+                            if (confirmed == true && mounted) {
                               await persist(
                                 activities
                                     .where((item) => item.id != a.id)
                                     .toList(),
                               );
+                            }
                           },
                     icon: const Icon(Icons.delete_outline),
                   ),
