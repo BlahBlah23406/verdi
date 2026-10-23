@@ -1,18 +1,32 @@
-// Deliberately illustrative factors, not verified accounting data.
+import 'emission_factors.dart';
+
+// Legacy kinds remain readable; new entries use the supported pilot catalog.
 enum ActivityKind {
   car('Car journey', 'Travel', 'km', 0.20),
   bus('Bus journey', 'Travel', 'km', 0.08),
-  train('Train journey', 'Travel', 'km', 0.04),
+  train('Commuter rail journey', 'Travel', 'km', 0.04),
   bicycle('Bicycle journey', 'Travel', 'km', 0),
   electricity('Home electricity', 'Home', 'kWh', 0.30),
   food('Food purchases', 'Food', 'USD', 0.50),
   shopping('Other purchases', 'Shopping', 'USD', 0.35),
   waste('Landfill waste', 'Waste', 'kg', 0.60);
 
-  const ActivityKind(this.label, this.category, this.unit, this.factor);
+  const ActivityKind(this.label, this.category, this.unit, this.legacyFactor);
   final String label, category, unit;
-  final double factor;
-  static const factorVersion = 'illustrative-v1';
+  final double legacyFactor;
+  static const factorVersion = EmissionFactor.version;
+  static const supported = [car, bus, train, bicycle, electricity];
+  EmissionFactor? get reference => switch (this) {
+    car => EmissionFactor.car,
+    bus => EmissionFactor.bus,
+    train => EmissionFactor.train,
+    bicycle => EmissionFactor.bicycle,
+    electricity => EmissionFactor.electricity,
+    _ => null,
+  };
+  double get factor =>
+      reference?.kgCo2ePerUnit ??
+      (throw UnsupportedError('No reviewed factor for $name.'));
 }
 
 class Activity {
@@ -24,7 +38,14 @@ class Activity {
     this.note = '',
     this.factorVersion = ActivityKind.factorVersion,
     double? factor,
-  }) : factor = factor ?? kind.factor {
+    Map<String, dynamic>? factorMetadata,
+  }) : factor = factor ?? kind.factor,
+       factorMetadata = Map.unmodifiable(
+         factorMetadata ??
+             (factorVersion == ActivityKind.factorVersion
+                 ? kind.reference?.toJson() ?? {}
+                 : {}),
+       ) {
     if (id.isEmpty ||
         !quantity.isFinite ||
         quantity <= 0 ||
@@ -35,6 +56,8 @@ class Activity {
       );
     }
   }
+  final Map<String, dynamic> factorMetadata;
+  bool get isPilotEstimate => factorVersion == ActivityKind.factorVersion;
   final String id, note, factorVersion;
   final ActivityKind kind;
   final double quantity, factor;
@@ -48,6 +71,7 @@ class Activity {
     'note': note,
     'factor': factor,
     'factorVersion': factorVersion,
+    'factorMetadata': factorMetadata,
   };
   factory Activity.fromJson(Map<String, dynamic> json) => Activity(
     id: json['id'] as String,
@@ -57,6 +81,9 @@ class Activity {
     note: json['note'] as String,
     factor: (json['factor'] as num).toDouble(),
     factorVersion: json['factorVersion'] as String,
+    factorMetadata: Map<String, dynamic>.from(
+      json['factorMetadata'] as Map? ?? {},
+    ),
   );
 }
 

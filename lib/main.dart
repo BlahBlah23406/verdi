@@ -95,7 +95,7 @@ class _HomeState extends State<Home> {
   List<Activity> get monthly {
     final now = DateTime.now();
     return engine.inPeriod(
-      activities,
+      activities.where((a) => a.isPilotEstimate),
       DateTime(now.year, now.month),
       DateTime(now.year, now.month + 1),
     );
@@ -134,7 +134,7 @@ class _HomeState extends State<Home> {
               builder: (context) => AlertDialog(
                 title: const Text('An honest starting point'),
                 content: const Text(
-                  'This prototype uses illustrative emission factors. All results are demo estimates, not a complete or verified carbon footprint. Travel is modeled per person, assuming solo car travel. Purchase estimates use USD. Bicycle travel excludes manufacturing and food. Your entries stay on this device. Rewards are previews with no cash value.',
+                  'US pilot: EPA 2025 factors for average passenger cars, buses, commuter rail and US-average electricity (eGRID 2023). Results estimate operational emissions, not a full lifecycle footprint. Cars assume one occupant; bicycle zero excludes food and manufacturing. Electricity is a national fallback, not your utility mix. Legacy demo logs stay in Activities but are excluded from totals. Rewards remain hypothetical.',
                 ),
                 actions: [
                   TextButton(
@@ -241,7 +241,7 @@ class _HomeState extends State<Home> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'THIS MONTH · DEMO ESTIMATE',
+                'THIS MONTH · US PILOT ESTIMATE',
                 style: TextStyle(color: Color(0xFFC7E0CB), letterSpacing: 1.5),
               ),
               const SizedBox(height: 20),
@@ -275,7 +275,7 @@ class _HomeState extends State<Home> {
           panel(
             Icons.spa_outlined,
             'Start with one everyday choice',
-            'Log a journey, electricity use, a purchase, or waste to build your picture.',
+            'Log a commute or home electricity use to build your picture.',
           ),
         for (final category in categories)
           Card(
@@ -310,7 +310,7 @@ class _HomeState extends State<Home> {
         ),
         const SizedBox(height: 12),
         const Text(
-          'Prototype • Illustrative factors • Saved on this device',
+          'US pilot • EPA 2025 factors • Legacy demo logs excluded',
           style: TextStyle(color: Colors.black54),
         ),
       ],
@@ -374,8 +374,27 @@ class _HomeState extends State<Home> {
             child: ListTile(
               isThreeLine: true,
               title: Text(a.kind.label),
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Calculation details'),
+                  content: SingleChildScrollView(
+                    child: SelectableText(
+                      '${a.quantity} ${a.kind.unit} × ${a.factor.toStringAsPrecision(8)} kg CO₂e/${a.kind.unit}\n'
+                      'Version: ${a.factorVersion}\n'
+                      '${a.factorMetadata.entries.map((e) => '${e.key}: ${e.value}').join('\n')}',
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Close'),
+                    ),
+                  ],
+                ),
+              ),
               subtitle: Text(
-                '${a.quantity} ${a.kind.unit} · ${a.date.toLocal().toString().substring(0, 10)}\n${a.note.isEmpty ? 'Manual entry' : a.note}',
+                '${a.quantity} ${a.kind.unit} · ${a.date.toLocal().toString().substring(0, 10)}\n${a.isPilotEstimate ? 'US pilot estimate' : 'Legacy demo · excluded from totals'}${a.note.isEmpty ? '' : ' · ${a.note}'}',
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -482,7 +501,7 @@ class _HomeState extends State<Home> {
                   ),
                 ),
                 const Text(
-                  'potential reduction for this journey · demo estimate',
+                  'potential reduction for this journey · US average estimate',
                 ),
                 const Divider(height: 40),
                 Text(
@@ -504,7 +523,7 @@ class _HomeState extends State<Home> {
         panel(
           Icons.science_outlined,
           'How this works',
-          'Distance × (car factor − alternative factor). These sample factors help test the experience; real estimates need regional data and validated assumptions.',
+          'Distance × (car factor − alternative factor). Uses EPA 2025 operational travel averages; rail means commuter rail. This is a comparison of attributed emissions, not a measured reduction from changing one trip.',
         ),
       ],
     );
@@ -552,7 +571,7 @@ class _ActivityFormState extends State<ActivityForm> {
           DropdownButtonFormField<ActivityKind>(
             initialValue: kind,
             decoration: const InputDecoration(labelText: 'Activity'),
-            items: ActivityKind.values
+            items: ActivityKind.supported
                 .map((k) => DropdownMenuItem(value: k, child: Text(k.label)))
                 .toList(),
             onChanged: (value) => setState(() {
@@ -610,7 +629,7 @@ class _ActivityFormState extends State<ActivityForm> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'Uses illustrative emission factors. Saved only on this device.',
+            'US average estimates. Cars assume solo travel. Electricity uses a national fallback. Saved only on this device.',
             textAlign: TextAlign.center,
           ),
         ],

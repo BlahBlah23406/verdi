@@ -23,12 +23,12 @@ void main() {
     await tester.enterText(find.byType(TextFormField).first, '10');
     await tester.tap(find.text('Save activity'));
     await tester.pumpAndSettle();
-    expect(find.text('2.0 kg'), findsOneWidget);
+    expect(find.text('1.9 kg'), findsOneWidget);
     expect(store.load(), hasLength(1));
     await tester.pumpWidget(const SizedBox());
     await tester.pumpWidget(VerdiApp(store: store));
     await tester.pumpAndSettle();
-    expect(find.text('2.0 kg'), findsOneWidget);
+    expect(find.text('1.9 kg'), findsOneWidget);
     await tester.tap(find.text('Activities'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Delete activity'));
@@ -38,7 +38,7 @@ void main() {
     expect(store.load(), isEmpty);
     await tester.tap(find.text('Reduce'));
     await tester.pumpAndSettle();
-    expect(find.text('3.2 kg CO₂e'), findsOneWidget);
+    expect(find.text('2.0 kg CO₂e'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('small phone layout renders without overflow', (tester) async {

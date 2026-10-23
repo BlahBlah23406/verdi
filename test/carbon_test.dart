@@ -10,10 +10,10 @@ void main() {
 
   test('quantity and factor produce reproducible estimates', () {
     final activity = entry('a', DateTime(2026, 10, 1));
-    expect(activity.emissions, 2);
+    expect(activity.emissions, closeTo(1.855226104549431, 1e-12));
     final restored = Activity.fromJson(activity.toJson());
-    expect(restored.emissions, 2);
-    expect(restored.factorVersion, 'illustrative-v1');
+    expect(restored.emissions, closeTo(1.855226104549431, 1e-12));
+    expect(restored.factorVersion, 'us-epa-2025-v1');
     final historical = Activity(
       id: 'old',
       kind: ActivityKind.car,
@@ -54,15 +54,18 @@ void main() {
     ];
     final period = engine.inPeriod(items, start, end);
     expect(period.map((a) => a.id), ['a', 'b']);
-    expect(engine.total(period), 4);
-    expect(engine.breakdown(period), {'Travel': 4});
+    expect(engine.total(period), closeTo(3.710452209098862, 1e-12));
+    expect(
+      engine.breakdown(period)['Travel'],
+      closeTo(3.710452209098862, 1e-12),
+    );
     expect(engine.total([]), 0);
     expect(() => engine.inPeriod([], end, start), throwsArgumentError);
   });
   test('travel scenarios and reward previews are deterministic', () {
     expect(
       engine.potentialTravelSaving(20, ActivityKind.train),
-      closeTo(3.2, 1e-10),
+      closeTo(2.045388680108168, 1e-10),
     );
     expect(engine.previewPoints(3.29), 32);
     expect(engine.previewPoints(0), 0);
@@ -78,7 +81,10 @@ void main() {
     final store = ActivityStore(prefs);
     expect(store.load(), isEmpty);
     await store.save([entry('a', DateTime(2026, 10, 1))]);
-    expect(ActivityStore(prefs).load().single.emissions, 2);
+    expect(
+      ActivityStore(prefs).load().single.emissions,
+      closeTo(1.855226104549431, 1e-12),
+    );
     await store.save([]);
     expect(ActivityStore(prefs).load(), isEmpty);
   });

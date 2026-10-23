@@ -1,38 +1,34 @@
-# Carbon engine v0.1
+# US pilot calculation engine
 
-The pure Dart engine lives in `lib/domain/carbon.dart`, independent of Flutter widgets and storage.
+The pilot covers commuting and home electricity. New entries use a pinned, source-backed catalog. This is a first implementation against published tables, not independent scientific validation or certification.
 
-## Current calculation
+## Reference and conversion
 
-`emissions (kg CO₂e) = quantity × factor (kg CO₂e / unit)`
+Source: [EPA January 2025 Emission Factors Hub](https://www.epa.gov/system/files/documents/2025-01/ghg-emission-factors-hub-2025.pdf), retrieved October 23, 2026. Version: `us-epa-2025-v1`.
 
-Each manual entry stores an ID, activity type, quantity, date, note, factor value, and factor version. Historical results retain the factor originally used. Monthly reporting uses local calendar boundaries [month start, next month start), deduplicating exact IDs. An entry on the last day of the previous month is excluded. Different IDs for the same real-world activity are not yet detected.
+| Table / row | CO₂ | CH₄ | N₂O | Source units |
+| --- | ---: | ---: | ---: | --- |
+| 10 / Passenger car | .297 | .0059 | .0053 | kg CO₂, g CH₄/N₂O per vehicle-mile |
+| 10 / Bus | .066 | .0046 | .0019 | kg CO₂, g CH₄/N₂O per passenger-mile |
+| 10 / Commuter rail | .133 | .0105 | .0026 | kg CO₂, g CH₄/N₂O per passenger-mile |
+| 6 / US average electricity | 771.5 | .057 | .008 | lb gas / MWh |
 
-| Activity | Unit | Illustrative factor |
-| --- | --- | --- |
-| Solo car journey | km | 0.20 |
-| Bus journey | passenger km | 0.08 |
-| Train journey | passenger km | 0.04 |
-| Bicycle journey | km | 0.00 |
-| Electricity | kWh | 0.30 |
-| Food purchases | USD | 0.50 |
-| Other purchases | USD | 0.35 |
-| Landfill waste | kg | 0.60 |
+Table 11 uses AR5 100-year GWPs: CH₄=28, N₂O=265. Travel: `(CO₂ + CH₄×28/1000 + N₂O×265/1000) / 1.609344`. Electricity: `(CO₂ + CH₄×28 + N₂O×265) × 0.45359237/1000`.
 
-**These are invented demo constants for product development, not figures extracted from an official dataset.** They are not suitable for carbon reporting, offset purchases, or verified reward issuance. Bicycle zero means zero in this simplified travel model, not zero lifecycle impact. Spend estimates are coarse placeholders; prices alone do not determine emissions. Users should log each activity once rather than both fuel spend and the corresponding journey.
+Electricity is a national fallback using eGRID 2023, excludes transmission losses, and is not a utility-specific estimate. Travel is operational, excludes upstream fuel and manufacturing; car assumes one occupant. Bus/rail are per passenger. Bicycle zero is Verdi's operational boundary assumption, not an EPA factor or a lifecycle claim.
 
-Travel scenarios calculate `km × (car factor − alternative factor)`. Demo points equal `floor(potential reduction × 10)`. Scenarios are hypothetical and do not change the journal or create a redeemable balance. No offset is subtracted from gross emissions.
+## Product behavior
 
-## Next algorithm work
+`emissions = quantity × factor`. Distance is entered in km; electricity in kWh. Tap a journal entry to inspect the source and calculation. The entry snapshots its factor, version, source, scope, geography and date, preserving historical values across future catalog changes.
 
-1. Select pilot geography and accounting boundaries (direct vs lifecycle emissions).
-2. Import reviewed, licensed factor records with source URL, publication year, geography, unit, scope and uncertainty. Candidate reference: [UK government 2026 conversion factors](https://www.gov.uk/government/publications/greenhouse-gas-reporting-conversion-factors-2026). US electricity needs regional grid data, not a UK default.
-3. Prefer measured quantities to spend proxies. Add travel mode/occupancy and electricity region. Do not combine factors with inconsistent boundaries.
-4. Add import provenance and reconciliation of overlapping transactions, sensor trips and receipts. Never treat unmatched data as zero emissions.
-5. Compare reductions only across comparable periods with sufficient coverage. Missing logs must not generate rewards.
-6. Add server-side verification, fraud controls and an idempotent reward ledger before redeemable points.
-7. Calibrate against independently calculated examples and document uncertainty before making accuracy claims.
+Old demo records remain readable and deletable, with their original values. The pilot overview excludes them. Food, shopping and waste have no reviewed pilot factors and cannot be newly logged; the engine rejects requests for those factors rather than returning zero. Earlier experiments remain visible as legacy entries.
 
-## Storage
+Period queries use local calendar boundaries [start, end) and deduplicate exact IDs. Different IDs for the same event are not detected yet. Manual logs can omit activities, so totals represent logged coverage only.
 
-Activities are JSON in device-local shared preferences. Persistence follows the [Flutter key-value storage pattern](https://docs.flutter.dev/cookbook/persistence/key-value). This is suitable for this small prototype, not a financial ledger or durable cloud backup. Unreadable saved data blocks edits to avoid overwriting it. There is no login, sync, encryption layer or export yet. Clearing app/browser data removes entries.
+Travel comparisons subtract attributed average emissions for the same distance. They are hypothetical; they do not prove a marginal reduction. The reward preview remains `floor(potential reduction × 10)`, with no issued balance or monetary value. No offsets are deducted from gross emissions.
+
+## Remaining validation
+
+Select a more specific pilot area and add utility/grid-region selection, car type and occupancy. Independently review reference transcription and boundaries. Quantify uncertainty where supported; no confidence interval is currently claimed. Pinned publication dates are explicit, and factors are not automatically described as the latest dataset. Add consistent coverage and baseline rules before calculating observed reductions or issuing rewards.
+
+Activities use device-local JSON in shared preferences. There is no cloud backup or encryption layer. Corrupt saved data blocks edits to avoid overwriting it.

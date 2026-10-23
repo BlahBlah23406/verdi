@@ -26,8 +26,11 @@ void main() {
   Activity entry(String id, DateTime date, {double quantity = 10}) =>
       Activity(id: id, kind: ActivityKind.car, quantity: quantity, date: date);
   final a = entry('a', start);
-  check(a.emissions == 2, '10 km car estimate');
-  check(Activity.fromJson(a.toJson()).emissions == 2, 'JSON round trip');
+  check((a.emissions - 1.855226104549431).abs() < 1e-12, '10 km car estimate');
+  check(
+    (Activity.fromJson(a.toJson()).emissions - 1.855226104549431).abs() < 1e-12,
+    'JSON round trip',
+  );
   final old = Activity(
     id: 'old',
     kind: ActivityKind.car,
@@ -56,12 +59,20 @@ void main() {
     end,
   );
   check(period.length == 2, 'Month boundaries and duplicate IDs');
-  check(engine.total(period) == 4, 'Aggregation');
-  check(engine.breakdown(period)['Travel'] == 4, 'Category breakdown');
+  check(
+    (engine.total(period) - 3.710452209098862).abs() < 1e-12,
+    'Aggregation',
+  );
+  check(
+    (engine.breakdown(period)['Travel']! - 3.710452209098862).abs() < 1e-12,
+    'Category breakdown',
+  );
   check(engine.total([]) == 0, 'Empty data');
   rejects(() => engine.inPeriod([], end, start), 'Invalid period');
   check(
-    (engine.potentialTravelSaving(20, ActivityKind.train) - 3.2).abs() < 1e-9,
+    (engine.potentialTravelSaving(20, ActivityKind.train) - 2.045388680108168)
+            .abs() <
+        1e-9,
     'Travel comparison',
   );
   check(engine.previewPoints(3.29) == 32, 'Reward rounding');
@@ -71,5 +82,41 @@ void main() {
     () => engine.potentialTravelSaving(2, ActivityKind.food),
     'Invalid alternative',
   );
+  final legacy = Activity.fromJson({
+    'id': 'legacy',
+    'kind': 'car',
+    'quantity': 10,
+    'date': start.toIso8601String(),
+    'note': '',
+    'factor': 0.2,
+    'factorVersion': 'illustrative-v1',
+  });
+  check(
+    legacy.emissions == 2 && !legacy.isPilotEstimate,
+    'Legacy values preserved and excluded',
+  );
+  check(
+    Activity.fromJson(a.toJson()).factorMetadata['sourceTable'] == '10, 11',
+    'Factor provenance survives persistence',
+  );
+  check(
+    (ActivityKind.electricity.factor - 0.35163206270192).abs() < 1e-12,
+    'Electricity pounds/MWh to kg/kWh and AR5 conversion',
+  );
+  check(
+    (ActivityKind.bus.factor * 1.609344 - 0.0666323).abs() < 1e-12,
+    'Bus passenger-mile reference vector',
+  );
+  check(ActivityKind.bicycle.factor == 0, 'Bicycle operational boundary');
+  check(
+    !ActivityKind.supported.contains(ActivityKind.food),
+    'Unsupported spending excluded from catalog',
+  );
+  try {
+    ActivityKind.food.factor;
+    throw StateError('Unsupported factor must fail');
+  } on UnsupportedError {
+    checks++;
+  }
   stdout.writeln('$checks algorithm checks passed.');
 }

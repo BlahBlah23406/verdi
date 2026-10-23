@@ -5,13 +5,13 @@
 - Flutter project with Android, iOS and web runners.
 - Manual activity entry, dates, validation and deletion.
 - Device-local persistence and monthly category breakdown.
-- Pure Dart estimation engine with versioned demo factors.
+- Pure Dart estimation engine with versioned EPA factors for a US commuting/electricity pilot.
 - Travel alternative comparison and explicitly hypothetical reward preview.
 - Algorithm, persistence and widget-flow tests.
 
 ## Next: make the estimates useful
 
-Choose one pilot region and one primary use case, such as personal commuting. Validate emission factors and boundaries with a domain expert. Add onboarding, user settings, units/currency, edit/export, and a meaningful baseline with coverage indicators. Test the experience with a small group of users before automating collection.
+The initial pilot is US commuting and home electricity. Narrow the geography, add regional electricity and vehicle settings, and independently review the EPA factor implementation with a domain expert. Add onboarding, user settings, units/currency, edit/export, and a meaningful baseline with coverage indicators. Test the experience with a small group of users before automating collection.
 
 ## Then: trusted accounts and integrations
 
@@ -27,4 +27,4 @@ Business dashboards, subscriptions, partner reporting and aggregated organizatio
 
 ## Development
 
-`flutter analyze` and `flutter test` check the app. `flutter build web` creates a browser release; Android/iOS releases also require installed native toolchains and signing configuration. The current factors and rewards must remain labeled as demo until validated replacements are shipped.
+`flutter analyze` and `flutter test` check the app. `flutter build web` creates a browser release; Android/iOS releases also require installed native toolchains and signing configuration. Published factors are average estimates; rewards remain a demo until eligibility and verification are implemented.
