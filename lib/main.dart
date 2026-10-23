@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/activity_store.dart';
 import 'domain/carbon.dart';
+import 'features/automation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -113,7 +114,17 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final pages = [dashboard(), journal(), explore()];
+    final pages = [
+      dashboard(),
+      journal(),
+      explore(),
+      AutomationScreen(
+        activities: widget.store,
+        onChanged: () {
+          if (mounted) setState(() => activities = widget.store.load());
+        },
+      ),
+    ];
     return Scaffold(
       appBar: AppBar(
         title: const Row(
@@ -157,10 +168,10 @@ class _HomeState extends State<Home> {
                   padding: const EdgeInsets.all(24),
                   child: Text(loadError!),
                 )
-              : pages[tab],
+              : IndexedStack(index: tab, children: pages),
         ),
       ),
-      floatingActionButton: loadError != null || tab == 2
+      floatingActionButton: loadError != null || tab >= 2
           ? null
           : FloatingActionButton.extended(
               onPressed: busy ? null : addActivity,
@@ -185,6 +196,7 @@ class _HomeState extends State<Home> {
             icon: Icon(Icons.auto_awesome_outlined),
             label: 'Reduce',
           ),
+          NavigationDestination(icon: Icon(Icons.sensors), label: 'Auto track'),
         ],
       ),
     );
@@ -229,7 +241,7 @@ class _HomeState extends State<Home> {
         heading(
           'SMALL STEPS. LASTING CHANGE.',
           'Your impact, made visible.',
-          'Understand your everyday choices. Find your next better one.',
+          'Start with Auto track to detect journeys and import electricity readings.',
         ),
         Container(
           padding: const EdgeInsets.all(28),
@@ -274,8 +286,8 @@ class _HomeState extends State<Home> {
         if (entries.isEmpty)
           panel(
             Icons.spa_outlined,
-            'Start with one everyday choice',
-            'Log a commute or home electricity use to build your picture.',
+            'Start with automatic tracking',
+            'Open Auto track to detect phone journeys or import utility readings. Manual logging is also available.',
           ),
         for (final category in categories)
           Card(
@@ -381,7 +393,7 @@ class _HomeState extends State<Home> {
                   content: SingleChildScrollView(
                     child: SelectableText(
                       '${a.quantity} ${a.kind.unit} × ${a.factor.toStringAsPrecision(8)} kg CO₂e/${a.kind.unit}\n'
-                      'Version: ${a.factorVersion}\n'
+                      'Version: ${a.factorVersion}\nSource: ${a.source}\nRecord: ${a.sourceId ?? a.id}\n'
                       '${a.factorMetadata.entries.map((e) => '${e.key}: ${e.value}').join('\n')}',
                     ),
                   ),

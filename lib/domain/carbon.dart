@@ -36,6 +36,9 @@ class Activity {
     required this.quantity,
     required this.date,
     this.note = '',
+    this.source = 'manual',
+    this.sourceId,
+    this.endDate,
     this.factorVersion = ActivityKind.factorVersion,
     double? factor,
     Map<String, dynamic>? factorMetadata,
@@ -58,13 +61,18 @@ class Activity {
   }
   final Map<String, dynamic> factorMetadata;
   bool get isPilotEstimate => factorVersion == ActivityKind.factorVersion;
-  final String id, note, factorVersion;
+  final String id, note, factorVersion, source;
+  final String? sourceId;
+  final DateTime? endDate;
   final ActivityKind kind;
   final double quantity, factor;
   final DateTime date;
   double get emissions => quantity * factor;
   Map<String, dynamic> toJson() => {
     'id': id,
+    'source': source,
+    'sourceId': sourceId,
+    'endDate': endDate?.toIso8601String(),
     'kind': kind.name,
     'quantity': quantity,
     'date': date.toIso8601String(),
@@ -75,6 +83,11 @@ class Activity {
   };
   factory Activity.fromJson(Map<String, dynamic> json) => Activity(
     id: json['id'] as String,
+    source: json['source'] as String? ?? 'manual',
+    sourceId: json['sourceId'] as String?,
+    endDate: json['endDate'] == null
+        ? null
+        : DateTime.parse(json['endDate'] as String),
     kind: ActivityKind.values.byName(json['kind'] as String),
     quantity: (json['quantity'] as num).toDouble(),
     date: DateTime.parse(json['date'] as String),

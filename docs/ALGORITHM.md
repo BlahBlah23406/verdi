@@ -23,7 +23,7 @@ Electricity is a national fallback using eGRID 2023, excludes transmission losse
 
 Old demo records remain readable and deletable, with their original values. The pilot overview excludes them. Food, shopping and waste have no reviewed pilot factors and cannot be newly logged; the engine rejects requests for those factors rather than returning zero. Earlier experiments remain visible as legacy entries.
 
-Period queries use local calendar boundaries [start, end) and deduplicate exact IDs. Different IDs for the same event are not detected yet. Manual logs can omit activities, so totals represent logged coverage only.
+Period queries use local calendar boundaries [start, end) and deduplicate exact IDs. Different IDs for the same event are not detected yet. Manual logs and foreground phone collection can omit activities, so totals represent confirmed coverage only. Automatic ingestion and review are documented in [Automatic tracking](AUTOMATIC_TRACKING.md).
 
 Travel comparisons subtract attributed average emissions for the same distance. They are hypothetical; they do not prove a marginal reduction. The reward preview remains `floor(potential reduction × 10)`, with no issued balance or monetary value. No offsets are deducted from gross emissions.
 
