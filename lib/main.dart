@@ -1,16 +1,21 @@
-// Overview: Starts the Flutter app and builds the overview, journal, comparison, and tracking navigation.
+// Overview: Starts the Flutter app and builds the overview, journal, comparison, tracking, and settings navigation.
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/activity_store.dart';
+import 'data/settings_store.dart';
 import 'domain/carbon.dart';
 import 'features/automation_screen.dart';
+import 'features/onboarding_screen.dart';
+import 'features/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try {
-    final store = ActivityStore(await SharedPreferences.getInstance());
-    runApp(VerdiApp(store: store));
+    final prefs = await SharedPreferences.getInstance();
+    final store = ActivityStore(prefs);
+    final settingsStore = SettingsStore(prefs);
+    runApp(VerdiApp(store: store, settingsStore: settingsStore));
   } catch (_) {
     runApp(
       const MaterialApp(
@@ -30,8 +35,9 @@ const forest = Color(0xFF174C38);
 const cream = Color(0xFFF6F7F2);
 
 class VerdiApp extends StatelessWidget {
-  const VerdiApp({super.key, required this.store});
+  const VerdiApp({super.key, required this.store, required this.settingsStore});
   final ActivityStore store;
+  final SettingsStore settingsStore;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Verdi',
@@ -49,13 +55,65 @@ class VerdiApp extends StatelessWidget {
       ),
       cardTheme: const CardThemeData(elevation: 0, color: Colors.white),
     ),
-    home: Home(store: store),
+    home: VerdiRoot(store: store, settingsStore: settingsStore),
   );
 }
 
-class Home extends StatefulWidget {
-  const Home({super.key, required this.store});
+class VerdiRoot extends StatefulWidget {
+  const VerdiRoot({super.key, required this.store, required this.settingsStore});
   final ActivityStore store;
+  final SettingsStore settingsStore;
+
+  @override
+  State<VerdiRoot> createState() => _VerdiRootState();
+}
+
+class _VerdiRootState extends State<VerdiRoot> {
+  UserSettings? settings;
+
+  @override
+  void initState() {
+    super.initState();
+    settings = widget.settingsStore.load();
+  }
+
+  void _onSettingsChanged() {
+    setState(() => settings = widget.settingsStore.load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (settings == null) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!settings!.onboarded) {
+      return OnboardingScreen(
+        settingsStore: widget.settingsStore,
+        onComplete: _onSettingsChanged,
+      );
+    }
+    return Home(
+      store: widget.store,
+      settingsStore: widget.settingsStore,
+      settings: settings!,
+      onSettingsChanged: _onSettingsChanged,
+    );
+  }
+}
+
+class Home extends StatefulWidget {
+  const Home({
+    super.key,
+    required this.store,
+    required this.settingsStore,
+    required this.settings,
+    required this.onSettingsChanged,
+  });
+  final ActivityStore store;
+  final SettingsStore settingsStore;
+  final UserSettings settings;
+  final VoidCallback onSettingsChanged;
+
   @override
   State<Home> createState() => _HomeState();
 }
@@ -68,13 +126,15 @@ class _HomeState extends State<Home> {
   String? loadError;
   double distance = 20;
   ActivityKind alternative = ActivityKind.train;
+
   @override
   void initState() {
     super.initState();
     try {
       activities = widget.store.load();
     } catch (_) {
-      loadError = 'Saved activities could not be read. Your data has been kept. Restart after restoring a valid backup.';
+      loadError =
+          'Saved activities could not be read. Your data has been kept. Restart after restoring a valid backup.';
     }
   }
 
@@ -128,17 +188,31 @@ class _HomeState extends State<Home> {
     ];
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
-          children: [
-            Icon(Icons.eco_outlined),
-            SizedBox(width: 8),
-            Text(
-              'verdi',
-              style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -1),
-            ),
-          ],
+        title: const Text(
+          'verdi',
+          style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -1),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Settings'),
+                    backgroundColor: cream,
+                    foregroundColor: forest,
+                  ),
+                  body: SettingsScreen(
+                    settingsStore: widget.settingsStore,
+                    onChanged: widget.onSettingsChanged,
+                  ),
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.settings_outlined),
+          ),
           IconButton(
             tooltip: 'About these estimates',
             onPressed: () => showDialog<void>(
@@ -146,7 +220,7 @@ class _HomeState extends State<Home> {
               builder: (context) => AlertDialog(
                 title: const Text('An honest starting point'),
                 content: const Text(
-                  'US pilot: EPA 2025 factors for average passenger cars, buses, commuter rail and US-average electricity (eGRID 2023). Results estimate operational emissions, not a full lifecycle footprint. Cars assume one occupant; bicycle zero excludes food and manufacturing. Electricity is a national fallback, not your utility mix. Legacy demo logs stay in Activities but are excluded from totals. Rewards remain hypothetical.',
+                  'US pilot: EPA 2025 factors for average passenger cars, buses, commuter rail and US-average electricity (eGRID 2023). Results estimate operational emissions, not a full lifecycle footprint. Cars assume one occupant; bicycle zero excludes food and manufacturing. Electricity uses your selected regional factor or the national fallback. Legacy demo logs stay in Activities but are excluded from totals. Rewards remain hypothetical.',
                 ),
                 actions: [
                   TextButton(
@@ -172,7 +246,7 @@ class _HomeState extends State<Home> {
               : IndexedStack(index: tab, children: pages),
         ),
       ),
-      floatingActionButton: loadError != null || tab >= 2
+      floatingActionButton: loadError != null || tab >= 3
           ? null
           : FloatingActionButton.extended(
               onPressed: busy ? null : addActivity,
@@ -182,7 +256,7 @@ class _HomeState extends State<Home> {
               label: const Text('Log activity'),
             ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
+        selectedIndex: tab.clamp(0, 3),
         onDestinationSelected: (value) => setState(() => tab = value),
         destinations: const [
           NavigationDestination(
@@ -222,20 +296,24 @@ class _HomeState extends State<Home> {
           fontWeight: FontWeight.w700,
           height: 1.1,
         ),
+        softWrap: true,
       ),
       const SizedBox(height: 12),
       Text(
         subtitle,
         style: TextStyle(fontSize: 16, color: Colors.grey.shade700),
+        softWrap: true,
       ),
       const SizedBox(height: 28),
     ],
   );
+
   Widget dashboard() {
     final entries = monthly;
     final total = engine.total(entries);
     final categories = engine.breakdown(entries).entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
+    final region = widget.settings.region;
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
       children: [
@@ -279,6 +357,33 @@ class _HomeState extends State<Home> {
           ),
         ),
         const SizedBox(height: 28),
+        // Settings summary card
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(Icons.tune, color: forest, size: 20),
+                    const SizedBox(width: 8),
+                    const Text(
+                      'Your profile',
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                _profileRow('Vehicle', VehicleTypeOption.byId(widget.settings.vehicleType).label),
+                _profileRow('Occupancy', '${widget.settings.occupancy} ${widget.settings.occupancy == 1 ? "person (solo)" : "people"}'),
+                _profileRow('Electricity region', region.label),
+                _profileRow('Electricity factor', '${region.kgCo2ePerKwh.toStringAsPrecision(4)} kg CO₂e/kWh'),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
         const Text(
           'Where it comes from',
           style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
@@ -322,13 +427,30 @@ class _HomeState extends State<Home> {
               : '${categories.first.key} is your largest logged contributor this month. ${tip(categories.first.key)}',
         ),
         const SizedBox(height: 12),
-        const Text(
-          'US pilot • EPA 2025 factors • Legacy demo logs excluded',
-          style: TextStyle(color: Colors.black54),
+        Text(
+          'US pilot • EPA 2025 factors • Region: ${region.label} • Legacy demo logs excluded',
+          style: const TextStyle(color: Colors.black54),
         ),
       ],
     );
   }
+
+  Widget _profileRow(String label, String value) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Flexible(child: Text(label, style: const TextStyle(color: Colors.black54))),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                value,
+                style: const TextStyle(fontWeight: FontWeight.w500),
+                textAlign: TextAlign.end,
+              ),
+            ),
+          ],
+        ),
+      );
 
   String tip(String category) => switch (category) {
     'Travel' => 'Compare a car journey with public transport in Reduce.',
@@ -338,6 +460,7 @@ class _HomeState extends State<Home> {
     'Shopping' => 'Consider repairing or reusing before buying something new.',
     _ => 'Track waste weight consistently to see changes over time.',
   };
+
   Widget panel(IconData icon, String title, String body) => Card(
     child: Padding(
       padding: const EdgeInsets.all(22),
@@ -366,6 +489,7 @@ class _HomeState extends State<Home> {
       ),
     ),
   );
+
   Widget journal() {
     final sorted = [...activities]..sort((a, b) => b.date.compareTo(a.date));
     return ListView(
@@ -457,6 +581,7 @@ class _HomeState extends State<Home> {
 
   Widget explore() {
     final saving = engine.potentialTravelSaving(distance, alternative);
+    final perPerson = engine.adjustedCarEmissions(distance, widget.settings.occupancy);
     return ListView(
       padding: const EdgeInsets.all(24),
       children: [
@@ -503,6 +628,31 @@ class _HomeState extends State<Home> {
                           )
                           .toList(),
                   onChanged: (value) => setState(() => alternative = value!),
+                ),
+                const SizedBox(height: 16),
+                // Occupancy-adjusted comparison
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: cream,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'With ${widget.settings.occupancy} ${widget.settings.occupancy == 1 ? "occupant" : "occupants"}: '
+                        '${perPerson.toStringAsFixed(1)} kg CO₂e per person',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                        softWrap: true,
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Total car emissions ÷ occupants = your personal share.',
+                        style: TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 28),
                 Text(
@@ -642,7 +792,7 @@ class _ActivityFormState extends State<ActivityForm> {
           ),
           const SizedBox(height: 12),
           const Text(
-            'US average estimates. Cars assume solo travel. Electricity uses a national fallback. Saved only on this device.',
+            'US average estimates. Cars assume solo travel. Electricity uses your selected regional factor. Saved only on this device.',
             textAlign: TextAlign.center,
           ),
         ],

@@ -1,5 +1,6 @@
 // Overview: Defines activity records and calculates period totals, category breakdowns, and travel comparisons.
 import 'emission_factors.dart';
+import 'regional_factors.dart';
 
 // Legacy kinds remain readable; new entries use the supported pilot catalog.
 enum ActivityKind {
@@ -132,6 +133,16 @@ class CarbonEngine {
     }
     return result;
   }
+
+  /// Adjust car emissions for occupancy: total ÷ occupants = per-person share.
+  double adjustedCarEmissions(double km, int occupancy) {
+    if (occupancy < 1) throw ArgumentError('Occupancy must be at least 1.');
+    return km * ActivityKind.car.factor / occupancy;
+  }
+
+  /// Get the electricity emission factor for a user's region.
+  double electricityFactorForRegion(String regionId) =>
+      RegionalFactor.byId(regionId).kgCo2ePerKwh;
 
   double potentialTravelSaving(double km, ActivityKind alternative) {
     if (!km.isFinite || km < 0 || alternative.category != 'Travel') {

@@ -1,10 +1,12 @@
 // Overview: Checks automatic ingestion, review-queue persistence, and confirmation into the activity journal.
+import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/material.dart';
 import 'package:verdi/features/automation_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:verdi/data/activity_store.dart';
 import 'package:verdi/data/automation_store.dart';
+import 'package:verdi/data/settings_store.dart';
 import 'package:verdi/domain/automation.dart';
 import 'package:verdi/domain/carbon.dart';
 import 'package:verdi/main.dart';
@@ -36,7 +38,14 @@ void main() {
     expect(prefs.getString(AutomationStore.key), 'broken');
   });
   testWidgets('import review confirmation enters journal once', (tester) async {
-    SharedPreferences.setMockInitialValues({});
+    SharedPreferences.setMockInitialValues({
+      SettingsStore.key: jsonEncode({
+        'onboarded': true,
+        'vehicleType': 'gasoline',
+        'occupancy': 1,
+        'regionId': 'us',
+      }),
+    });
     final prefs = await SharedPreferences.getInstance();
     final candidates = parseUtilityCsv(
       'record_id,date,kwh\nr1,2026-01-01,12.5',
@@ -44,7 +53,8 @@ void main() {
     );
     await AutomationStore(prefs).save(AutomationState(candidates, {}));
     final activityStore = ActivityStore(prefs);
-    await tester.pumpWidget(VerdiApp(store: activityStore));
+    final settingsStore = SettingsStore(prefs);
+    await tester.pumpWidget(VerdiApp(store: activityStore, settingsStore: settingsStore));
     await tester.tap(find.text('Auto track'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
