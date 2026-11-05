@@ -126,6 +126,7 @@ class _HomeState extends State<Home> {
   String? loadError;
   double distance = 20;
   ActivityKind alternative = ActivityKind.train;
+  bool demoMode = false;
 
   @override
   void initState() {
@@ -135,6 +136,61 @@ class _HomeState extends State<Home> {
     } catch (_) {
       loadError =
           'Saved activities could not be read. Your data has been kept. Restart after restoring a valid backup.';
+    }
+  }
+
+  /// Load sample activities for VC demo — populates the app with realistic data.
+  Future<void> loadDemoData() async {
+    final now = DateTime.now();
+    final sample = [
+      Activity(id: 'demo-1', kind: ActivityKind.car, quantity: 15, date: DateTime(now.year, now.month, now.day - 1, 8, 30), note: 'Commute to campus'),
+      Activity(id: 'demo-2', kind: ActivityKind.car, quantity: 15, date: DateTime(now.year, now.month, now.day - 2, 17, 0), note: 'Drive home'),
+      Activity(id: 'demo-3', kind: ActivityKind.electricity, quantity: 120, date: DateTime(now.year, now.month, now.day - 3), note: 'Daily electricity'),
+      Activity(id: 'demo-4', kind: ActivityKind.bus, quantity: 8, date: DateTime(now.year, now.month, now.day - 4, 9, 0), note: 'Bus to downtown'),
+      Activity(id: 'demo-5', kind: ActivityKind.car, quantity: 22, date: DateTime(now.year, now.month, now.day - 5, 14, 0), note: 'Weekend errands'),
+      Activity(id: 'demo-6', kind: ActivityKind.train, quantity: 30, date: DateTime(now.year, now.month, now.day - 7, 7, 0), note: 'Train to Seattle'),
+      Activity(id: 'demo-7', kind: ActivityKind.electricity, quantity: 95, date: DateTime(now.year, now.month, now.day - 8), note: 'Daily electricity'),
+      Activity(id: 'demo-8', kind: ActivityKind.car, quantity: 12, date: DateTime(now.year, now.month, now.day - 10, 18, 0), note: 'Evening drive'),
+    ];
+    setState(() => busy = true);
+    try {
+      await widget.store.save(sample);
+      if (mounted) {
+        setState(() {
+          activities = sample;
+          demoMode = true;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not load demo data.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  /// Clear demo data and return to empty state.
+  Future<void> clearDemoData() async {
+    setState(() => busy = true);
+    try {
+      await widget.store.save([]);
+      if (mounted) {
+        setState(() {
+          activities = [];
+          demoMode = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not clear demo data.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
@@ -356,6 +412,34 @@ class _HomeState extends State<Home> {
             ],
           ),
         ),
+        // Demo mode toggle
+        if (entries.isEmpty && !demoMode)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: FilledButton.tonalIcon(
+              onPressed: busy ? null : loadDemoData,
+              icon: const Icon(Icons.play_circle_outline),
+              label: const Text('Load demo data'),
+            ),
+          ),
+        if (demoMode)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: Row(
+              children: [
+                const Icon(Icons.science_outlined, color: Colors.orange, size: 20),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text('Demo mode — sample data loaded',
+                      style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+                ),
+                TextButton(
+                  onPressed: busy ? null : clearDemoData,
+                  child: const Text('Clear'),
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 28),
         // Settings summary card
         Card(
@@ -418,6 +502,21 @@ class _HomeState extends State<Home> {
               ),
             ),
           ),
+        // Before vs After carbon impact visualization
+        if (entries.isNotEmpty) ...[
+          const SizedBox(height: 28),
+          const Text(
+            'Your impact: before vs after',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'See how small changes to your travel habits could reduce your monthly footprint.',
+            style: TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 16),
+          _beforeAfterViz(entries, total),
+        ],
         const SizedBox(height: 20),
         panel(
           Icons.lightbulb_outline,
@@ -451,6 +550,122 @@ class _HomeState extends State<Home> {
           ],
         ),
       );
+
+  /// Before/after carbon impact visualization showing current footprint
+  /// vs potential reduction if car trips were replaced with public transit.
+  Widget _beforeAfterViz(List<Activity> entries, double total) {
+    // Calculate potential savings: replace all car trips with train
+    final carActivities = entries.where((a) => a.kind == ActivityKind.car).toList();
+    double potentialSaving = 0;
+    for (final a in carActivities) {
+      potentialSaving += a.quantity * (ActivityKind.car.factor - ActivityKind.train.factor);
+    }
+    final reducedTotal = total - potentialSaving;
+    final savingPct = total > 0 ? (potentialSaving / total * 100) : 0.0;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Before bar
+            const Text(
+              'Current footprint',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  flex: total.round().clamp(1, 100),
+                  child: Container(
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: forest,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${total.toStringAsFixed(1)} kg CO₂e',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // After bar
+            const Text(
+              'With public transit swaps',
+              style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  flex: reducedTotal.round().clamp(1, 100),
+                  child: Container(
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF4CAF50),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${reducedTotal.toStringAsFixed(1)} kg CO₂e',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            // Savings summary
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE8F5E9),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.trending_down, color: Color(0xFF2E7D32), size: 28),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${potentialSaving.toStringAsFixed(1)} kg CO₂e potential reduction',
+                          style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF2E7D32)),
+                        ),
+                        Text(
+                          "That's ${savingPct.toStringAsFixed(0)}% of your monthly footprint — "
+                          'equivalent to ${engine.previewPoints(potentialSaving)} eco-points',
+                          style: const TextStyle(color: Color(0xFF2E7D32), fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (carActivities.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: Text(
+                  'No car trips logged yet. Add a car journey to see your reduction potential.',
+                  style: TextStyle(color: Colors.black54, fontSize: 13),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   String tip(String category) => switch (category) {
     'Travel' => 'Compare a car journey with public transport in Reduce.',
