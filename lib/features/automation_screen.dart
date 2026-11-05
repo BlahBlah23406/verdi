@@ -260,7 +260,7 @@ class _AutomationScreenState extends State<AutomationScreen>
         ),
         const SizedBox(height: 12),
         const Text(
-          'Detect journeys from your phone and import electricity readings. Review what we find before it changes your footprint.',
+          'Detect journeys from your phone, import electricity readings, and connect data sources across multiple fronts. Review what we find before it changes your footprint.',
         ),
         const SizedBox(height: 24),
         Card(
@@ -363,7 +363,7 @@ class _AutomationScreenState extends State<AutomationScreen>
         for (final candidate in pending) candidateCard(candidate),
         const SizedBox(height: 16),
         const Text(
-          'Bank transactions, travel accounts, smart-home connections, always-on background tracking and real reward redemption are not connected yet.',
+          'Bank transactions, flight history, purchase data, waste tracking, smart-home connections, always-on background tracking and real reward redemption are not connected yet. These are roadmap items — see docs/ROADMAP.md for the multi-front tracking plan.',
         ),
       ],
     );

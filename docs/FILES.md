@@ -77,11 +77,17 @@ Code and commentable configuration files also contain a short overview. JSON, CS
 | [ios/RunnerTests/RunnerTests.swift](../ios/RunnerTests/RunnerTests.swift) | Provides the generated iOS runner test scaffold. |
 | [lib/data/activity_store.dart](../lib/data/activity_store.dart) | Loads and saves confirmed activities in device-local preferences. |
 | [lib/data/automation_store.dart](../lib/data/automation_store.dart) | Persists pending activity candidates and discarded record identities. |
+| [lib/data/settings_store.dart](../lib/data/settings_store.dart) | Persists user settings (onboarding, vehicle type, occupancy, region) in shared preferences. |
 | [lib/domain/automation.dart](../lib/domain/automation.dart) | Segments location samples into trips, parses utility readings, and checks activity overlap. |
 | [lib/domain/carbon.dart](../lib/domain/carbon.dart) | Defines activity records and calculates period totals, category breakdowns, and travel comparisons. |
-| [lib/domain/emission_factors.dart](../lib/domain/emission_factors.dart) | Defines the versioned EPA emission factors, unit conversions, and source metadata. |
+| [lib/domain/data_source.dart](../lib/domain/data_source.dart) | Defines the abstract data source interface for multi-front tracking and stub implementations. |
+| [lib/domain/emission_factors.dart](../lib/domain/emission_factors.dart) | Defines versioned emission factors for travel, home, products, flights, and waste. |
+| [lib/domain/incentive_service.dart](../lib/domain/incentive_service.dart) | Tracks emission reductions and computes rule-based reward previews. |
+| [lib/domain/regional_factors.dart](../lib/domain/regional_factors.dart) | Defines regional US electricity emission factors from EPA eGRID 2023 subregion data. |
 | [lib/features/automation_screen.dart](../lib/features/automation_screen.dart) | Presents tracking consent, utility imports, and the candidate review queue. |
-| [lib/main.dart](../lib/main.dart) | Starts the Flutter app and builds the overview, journal, comparison, and tracking navigation. |
+| [lib/features/onboarding_screen.dart](../lib/features/onboarding_screen.dart) | Three-step onboarding flow — welcome, vehicle setup, region selection. |
+| [lib/features/settings_screen.dart](../lib/features/settings_screen.dart) | Settings screen for vehicle type, occupancy, and electricity region selection. |
+| [lib/main.dart](../lib/main.dart) | Starts the Flutter app and builds the overview, journal, comparison, rewards, and tracking navigation. |
 | [lib/services/phone_tracking.dart](../lib/services/phone_tracking.dart) | Converts native location events into typed Dart location samples. |
 | [pubspec.lock](../pubspec.lock) | Pins resolved dependency versions for reproducible package installation. |
 | [pubspec.yaml](../pubspec.yaml) | Declares the Flutter app, SDK constraints, dependencies, and bundled resources. |

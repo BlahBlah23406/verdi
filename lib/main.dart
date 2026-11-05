@@ -5,6 +5,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'data/activity_store.dart';
 import 'data/settings_store.dart';
 import 'domain/carbon.dart';
+import 'domain/data_source.dart';
+import 'domain/incentive_service.dart';
 import 'features/automation_screen.dart';
 import 'features/onboarding_screen.dart';
 import 'features/settings_screen.dart';
@@ -235,6 +237,7 @@ class _HomeState extends State<Home> {
       dashboard(),
       journal(),
       explore(),
+      rewardsPage(),
       AutomationScreen(
         activities: widget.store,
         onChanged: () {
@@ -276,7 +279,7 @@ class _HomeState extends State<Home> {
               builder: (context) => AlertDialog(
                 title: const Text('An honest starting point'),
                 content: const Text(
-                  'US pilot: EPA 2025 factors for average passenger cars, buses, commuter rail and US-average electricity (eGRID 2023). Results estimate operational emissions, not a full lifecycle footprint. Cars assume one occupant; bicycle zero excludes food and manufacturing. Electricity uses your selected regional factor or the national fallback. Legacy demo logs stay in Activities but are excluded from totals. Rewards remain hypothetical.',
+                  'US pilot: EPA 2025 factors for average passenger cars, buses, commuter rail and US-average electricity (eGRID 2023). Extended factors for flights, products, and waste are research-sourced placeholders (DEFRA, EPA WARM, EIO-LCA). Results estimate operational emissions, not a full lifecycle footprint. Cars assume one occupant; bicycle zero excludes food and manufacturing. Electricity uses your selected regional factor or the national fallback. Legacy demo logs stay in Activities but are excluded from totals. Rewards remain hypothetical.',
                 ),
                 actions: [
                   TextButton(
@@ -302,7 +305,7 @@ class _HomeState extends State<Home> {
               : IndexedStack(index: tab, children: pages),
         ),
       ),
-      floatingActionButton: loadError != null || tab >= 3
+      floatingActionButton: loadError != null || tab >= 4
           ? null
           : FloatingActionButton.extended(
               onPressed: busy ? null : addActivity,
@@ -312,7 +315,7 @@ class _HomeState extends State<Home> {
               label: const Text('Log activity'),
             ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: tab.clamp(0, 3),
+        selectedIndex: tab.clamp(0, 4),
         onDestinationSelected: (value) => setState(() => tab = value),
         destinations: const [
           NavigationDestination(
@@ -326,6 +329,10 @@ class _HomeState extends State<Home> {
           NavigationDestination(
             icon: Icon(Icons.auto_awesome_outlined),
             label: 'Reduce',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.emoji_events_outlined),
+            label: 'Rewards',
           ),
           NavigationDestination(icon: Icon(Icons.sensors), label: 'Auto track'),
         ],
@@ -376,7 +383,7 @@ class _HomeState extends State<Home> {
         heading(
           'SMALL STEPS. LASTING CHANGE.',
           'Your impact, made visible.',
-          'Start with Auto track to detect journeys and import electricity readings.',
+          'Auto-track travel, utilities, purchases, flights, and waste — correlated into one clear footprint.',
         ),
         Container(
           padding: const EdgeInsets.all(28),
@@ -476,8 +483,8 @@ class _HomeState extends State<Home> {
         if (entries.isEmpty)
           panel(
             Icons.spa_outlined,
-            'Start with automatic tracking',
-            'Open Auto track to detect phone journeys or import utility readings. Manual logging is also available.',
+            'Start with multi-front tracking',
+            'Open Auto track to detect phone journeys, import utility readings, or connect data sources. Manual logging is also available.',
           ),
         for (final category in categories)
           Card(
@@ -704,6 +711,222 @@ class _HomeState extends State<Home> {
       ),
     ),
   );
+
+  Widget rewardsPage() {
+    final incentiveService = const IncentiveService();
+    final now = DateTime.now();
+    final currentMonth = engine.inPeriod(
+      activities.where((a) => a.isPilotEstimate),
+      DateTime(now.year, now.month),
+      DateTime(now.year, now.month + 1),
+    );
+    final previousMonth = engine.inPeriod(
+      activities.where((a) => a.isPilotEstimate),
+      DateTime(now.year, now.month - 1),
+      DateTime(now.year, now.month),
+    );
+    final monthlyReward = incentiveService.computeMonthlyReward(
+      currentMonth: currentMonth,
+      previousMonth: previousMonth,
+      now: now,
+    );
+    final registry = DataSourceRegistry();
+    final fronts = registry.byFront;
+    registry.dispose();
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 100),
+      children: [
+        heading(
+          'REDUCE. GET REWARDED.',
+          'Incentives for lower emissions.',
+          'Earn eco-points when your footprint shrinks month over month. Rewards are preview-only — no real redemption yet.',
+        ),
+        // Monthly reward card
+        if (monthlyReward != null)
+          Container(
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: forest,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'THIS MONTH · REWARD PREVIEW',
+                  style: TextStyle(color: Color(0xFFC7E0CB), letterSpacing: 1.5),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '+${monthlyReward.points} eco-points',
+                  style: const TextStyle(
+                    fontSize: 52,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  monthlyReward.description,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
+            ),
+          )
+        else
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(Icons.emoji_events_outlined, color: forest, size: 48),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'No reward yet this month',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Reduce your emissions below last month to earn eco-points. '
+                    'Log activities across multiple fronts to build a complete picture.',
+                    style: TextStyle(color: Colors.black54),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: 28),
+        // Multi-front tracking vision
+        const Text(
+          'Tracking fronts',
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Verdi correlates data from multiple sources to build a granular, '
+          'down-to-user emissions picture. Here is what is available and what is on the roadmap.',
+          style: TextStyle(color: Colors.black54),
+        ),
+        const SizedBox(height: 16),
+        for (final entry in fronts.entries) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(_frontIcon(entry.key), color: forest, size: 24),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          entry.key.label,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 17,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    entry.key.description,
+                    style: const TextStyle(color: Colors.black54, fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  for (final source in entry.value)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: Row(
+                        children: [
+                          _statusDot(source.status),
+                          const SizedBox(width: 8),
+                          Expanded(child: Text(source.displayName)),
+                          Text(
+                            source.status.label,
+                            style: const TextStyle(
+                              color: Colors.black54,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Show which sources are implemented vs roadmap
+                  if (entry.key == TrackingFront.travel)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        '✓ Phone GPS trip detection and utility CSV import are implemented. '
+                        'Flight data is a roadmap item.',
+                        style: TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                    )
+                  else if (entry.key == TrackingFront.home)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 8),
+                      child: Text(
+                        '✓ Utility CSV import is implemented. Live provider connections are a roadmap item.',
+                        style: TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Roadmap: ${entry.key.label.toLowerCase()} data sources will connect with user consent in future phases.',
+                        style: const TextStyle(color: Colors.black54, fontSize: 13),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        const SizedBox(height: 20),
+        panel(
+          Icons.lightbulb_outline,
+          'How rewards work',
+          'Compare this month to last month. If your emissions dropped, earn 10 eco-points per kg of reduction. '
+          'This is a preview system — no points are redeemable or transferable yet. A verified reward ledger '
+          'requires a backend and trusted baselines (see docs/ROADMAP.md, Phase 4).',
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Current month: ${engine.total(currentMonth).toStringAsFixed(1)} kg CO₂e · '
+          'Previous month: ${engine.total(previousMonth).toStringAsFixed(1)} kg CO₂e',
+          style: const TextStyle(color: Colors.black54),
+        ),
+      ],
+    );
+  }
+
+  IconData _frontIcon(TrackingFront front) => switch (front) {
+    TrackingFront.travel => Icons.directions_car_outlined,
+    TrackingFront.home => Icons.home_outlined,
+    TrackingFront.products => Icons.shopping_bag_outlined,
+    TrackingFront.waste => Icons.delete_outline,
+    TrackingFront.food => Icons.restaurant_outlined,
+  };
+
+  Widget _statusDot(DataSourceStatus status) => Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: switch (status) {
+            DataSourceStatus.connected => const Color(0xFF4CAF50),
+            DataSourceStatus.pending => Colors.orange,
+            DataSourceStatus.error => Colors.red,
+            DataSourceStatus.notConnected => Colors.grey.shade400,
+          },
+        ),
+      );
 
   Widget journal() {
     final sorted = [...activities]..sort((a, b) => b.date.compareTo(a.date));
@@ -949,7 +1172,7 @@ class _ActivityFormState extends State<ActivityForm> {
           DropdownButtonFormField<ActivityKind>(
             initialValue: kind,
             decoration: const InputDecoration(labelText: 'Activity'),
-            items: ActivityKind.supported
+            items: ActivityKind.allLoggable
                 .map((k) => DropdownMenuItem(value: k, child: Text(k.label)))
                 .toList(),
             onChanged: (value) => setState(() {

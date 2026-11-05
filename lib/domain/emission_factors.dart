@@ -1,5 +1,6 @@
-// Overview: Defines the versioned EPA emission factors, unit conversions, and source metadata.
-/// Pinned EPA 2025 dataset; see docs/ALGORITHM.md for boundaries.
+// Overview: Defines versioned emission factors for travel, home, products, flights, and waste.
+/// Pinned EPA 2025 dataset for travel and electricity; product/flight/waste factors
+/// are research-sourced placeholders for the Carton multi-front tracking vision.
 class EmissionFactor {
   const EmissionFactor(
     this.id,
@@ -47,6 +48,63 @@ class EmissionFactor {
     'Verdi boundary assumption',
     'Unassisted bicycle: no operational fuel/electricity emissions; excludes food and manufacturing.',
   );
+
+  // ---------------------------------------------------------------------------
+  // Extended factors: products, flights, and waste.
+  // These are research-sourced estimates for the Carton multi-front tracking
+  // vision. They are NOT from the EPA Emission Factors Hub and carry higher
+  // uncertainty. Each is labelled so the UI can distinguish reviewed vs
+  // roadmap factors.
+  // ---------------------------------------------------------------------------
+
+  /// Average embodied emissions per USD of general consumer spending.
+  /// Source: EPA Economic Input-Output LCA-based estimate (~0.35 kg CO₂e/USD).
+  /// Placeholder — needs category-specific factors (electronics, clothing, etc.).
+  static const productAverage = EmissionFactor(
+    'product-average-spend',
+    0.35,
+    'EPA EIO-LCA estimate (placeholder)',
+    'Embodied emissions per USD of consumer spending; excludes use-phase and end-of-life. Placeholder for category-specific factors.',
+  );
+
+  /// Flight emissions per passenger-km for short-haul economy flights.
+  /// Source: UK DEFRA 2024 conversion factors (short-haul economy).
+  /// Placeholder — needs distance-class and cabin-class specificity.
+  static const flightShortHaul = EmissionFactor(
+    'flight-short-haul-economy',
+    0.151,
+    'UK DEFRA 2024 (placeholder)',
+    'Short-haul economy per passenger-km; includes RFI multiplier. Placeholder — needs cabin class and distance bands.',
+  );
+
+  /// Flight emissions per passenger-km for long-haul economy flights.
+  /// Source: UK DEFRA 2024 conversion factors (long-haul economy).
+  static const flightLongHaul = EmissionFactor(
+    'flight-long-haul-economy',
+    0.147,
+    'UK DEFRA 2024 (placeholder)',
+    'Long-haul economy per passenger-km; includes RFI multiplier. Placeholder — needs cabin class and distance bands.',
+  );
+
+  /// Landfill waste emissions per kg of mixed municipal solid waste.
+  /// Source: EPA WARM model — mixed MSW landfill emission factor.
+  static const wasteLandfill = EmissionFactor(
+    'waste-landfill-mixed',
+    0.60,
+    'EPA WARM (placeholder)',
+    'Mixed municipal solid waste to landfill; excludes recycling and composting. Placeholder for waste-stream-specific factors.',
+  );
+
+  /// Whether this factor is from the reviewed EPA catalog or a research placeholder.
+  bool get isReviewed => switch (id) {
+        'passenger-car' ||
+        'bus' ||
+        'commuter-rail' ||
+        'electricity-us-average' ||
+        'bicycle-operational' =>
+          true,
+        _ => false,
+      };
 
   Map<String, dynamic> toJson() => {
     'id': id,

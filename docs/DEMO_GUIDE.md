@@ -6,9 +6,9 @@
 
 ## What Verdi Does
 
-Verdi turns everyday activity into a clear picture of personal carbon emissions — and helps people reduce them. Users grant consent for phone sensors and utility data; Verdi detects journeys, imports electricity readings, and calculates emissions using EPA-sourced factors. Every estimate is traceable: users can see exactly how each number was derived.
+Verdi turns everyday activity into a clear picture of personal carbon emissions — and helps people reduce them. Users grant consent for phone sensors and consumer data; Verdi detects journeys, imports electricity readings, and calculates emissions using EPA-sourced factors. Every estimate is traceable: users can see exactly how each number was derived.
 
-**The core insight:** people want to reduce their footprint but can't see it. Verdi makes the invisible visible.
+**The Carton vision:** automated, multi-source carbon tracking with unprecedented granularity and user incentives. Verdi correlates data from phone GPS, utility readings, purchase history, flight data, and waste streams into one transparent footprint — then rewards users for reducing it.
 
 ---
 
@@ -18,7 +18,8 @@ Verdi turns everyday activity into a clear picture of personal carbon emissions 
 2. **Overview screen** → shows monthly CO₂e total with category breakdown (Travel, Home). Profile card shows selected settings. "Before vs After" visualization shows current footprint vs potential reduction.
 3. **Tap "Log activity"** → add a car journey (e.g., 20 km). See it appear in the overview with emissions calculated in real-time.
 4. **"Reduce" tab** → slide the distance slider, switch between car/bus/train/bicycle. See potential CO₂e savings and eco-points preview.
-5. **"Auto track" tab** → shows the automatic detection pipeline: phone trip detection and utility data import with review queue.
+5. **"Auto track" tab** → shows the automatic detection pipeline: phone trip detection and utility data import with review queue. Also shows the multi-front tracking vision (purchase, flight, waste data sources as roadmap).
+6. **"Rewards" tab** → shows the incentive system: monthly eco-points preview, multi-front tracking overview, and how rewards work.
 6. **Settings** → change electricity region and watch factors update.
 
 **Demo Mode:** Tap the demo button on the overview to load sample activities (car trips, electricity, bus commutes) for a populated demo without needing real GPS data.
@@ -49,22 +50,23 @@ Verdi turns everyday activity into a clear picture of personal carbon emissions 
 
 | Phase | Status | Key Milestones |
 |-------|--------|----------------|
-| **Pilot** | ✅ Current | US commuting + electricity, manual + auto tracking, web build |
-| **Useful** | Next | Regional expansion, device validation, user pilot, baseline + coverage indicators |
-| **Trusted** | Then | Auth, backend, connected accounts (utility/banking), background tracking |
-| **Incentives** | Then | Verified reductions, reward ledger, offset partnerships |
+| **Pilot** | ✅ Current | US commuting + electricity, manual + auto tracking, rewards preview, multi-front data source scaffolding |
+| **Useful** | Next | Category-specific factors, device validation, user pilot, baseline + coverage indicators |
+| **Trusted** | Then | Auth, backend, connected accounts (utility/banking/flights/waste), background tracking |
+| **Incentives** | Then | Verified reductions, reward ledger, offset partnerships, redeemable rewards |
 | **Scale** | Later | Business dashboards, subscriptions, partner reporting, org analytics |
 
 ---
 
 ## Key Talking Points
 
-- **"Automatic, not manual."** The core product is passive tracking — phone sensors + utility data. Manual logging is the fallback, not the primary flow.
-- **"Traceable by design."** Every emission number links back to its factor, source, and calculation. No black boxes.
-- **"EPA factors, not guesses."** Using the EPA 2025 Emission Factors Hub — the same source regulators use.
+- **"Automatic, not manual."** The core product is passive tracking — phone sensors + consumer data across multiple fronts (travel, home, products, flights, waste). Manual logging is the fallback.
+- **"Multi-front tracking."** Not just car trips and electricity — Verdi correlates purchase emissions, flight emissions, waste emissions, and home energy into one picture.
+- **"Unprecedented granularity."** Down-to-user metrics that unveil individual-level emission sources. Every number links back to its factor, source, and calculation.
+- **"Incentivized reduction."** Users earn eco-points for month-over-month emission reductions. Rewards are preview-only now; a verified ledger is on the roadmap.
+- **"EPA factors, not guesses."** Using the EPA 2025 Emission Factors Hub — the same source regulators use. Extended factors for flights, products, and waste are research-sourced.
 - **"Cross-platform from day one."** Flutter gives us iOS, Android, and web from one codebase.
 - **"Privacy-first architecture."** Data stays on-device in the prototype. Backend requires explicit consent and account deletion flows.
-- **"Reductions, not just measurement."** The Reduce tab shows actionable alternatives — that's the path to behavior change.
 
 ---
 

@@ -2,13 +2,16 @@
 import 'emission_factors.dart';
 import 'regional_factors.dart';
 
-// Legacy kinds remain readable; new entries use the supported pilot catalog.
+// Legacy kinds remain readable; new entries use the pilot catalog plus
+// extended Carton-vision kinds (flights, products, waste) with placeholder factors.
 enum ActivityKind {
   car('Car journey', 'Travel', 'km', 0.20),
   bus('Bus journey', 'Travel', 'km', 0.08),
   train('Commuter rail journey', 'Travel', 'km', 0.04),
   bicycle('Bicycle journey', 'Travel', 'km', 0),
   electricity('Home electricity', 'Home', 'kWh', 0.30),
+  flight('Flight (short-haul economy)', 'Travel', 'passenger-km', 0.151),
+  product('Product purchase', 'Products', 'USD', 0.35),
   food('Food purchases', 'Food', 'USD', 0.50),
   shopping('Other purchases', 'Shopping', 'USD', 0.35),
   waste('Landfill waste', 'Waste', 'kg', 0.60);
@@ -17,13 +20,28 @@ enum ActivityKind {
   final String label, category, unit;
   final double legacyFactor;
   static const factorVersion = EmissionFactor.version;
+
+  /// Core EPA-reviewed pilot activities.
   static const supported = [car, bus, train, bicycle, electricity];
+
+  /// Extended Carton-vision activities with placeholder factors.
+  static const extended = [flight, product, waste];
+
+  /// All loggable kinds (pilot + extended).
+  static const allLoggable = [...supported, ...extended];
+
+  /// Whether this kind has a reviewed EPA factor (vs a placeholder).
+  bool get isReviewed => supported.contains(this);
+
   EmissionFactor? get reference => switch (this) {
     car => EmissionFactor.car,
     bus => EmissionFactor.bus,
     train => EmissionFactor.train,
     bicycle => EmissionFactor.bicycle,
     electricity => EmissionFactor.electricity,
+    flight => EmissionFactor.flightShortHaul,
+    product => EmissionFactor.productAverage,
+    waste => EmissionFactor.wasteLandfill,
     _ => null,
   };
   double get factor =>

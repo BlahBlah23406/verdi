@@ -97,8 +97,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 16),
           const Text(
             'Understand your everyday carbon footprint.\n'
-            'Track travel and electricity, see your impact,\n'
-            'and discover ways to reduce emissions.',
+            'Auto-track travel, utilities, purchases, flights,\n'
+            'and waste — correlated and rewarded.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 16, color: Colors.black54),
           ),
@@ -111,12 +111,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _featureRow(Icons.sensors, 'Automatic tracking',
-                      'Detect journeys and import utility readings'),
+                  _featureRow(Icons.sensors, 'Multi-front tracking',
+                      'Travel, home, products, flights, and waste'),
                   _featureRow(Icons.receipt_long, 'Activity journal',
                       'Every logged activity with traceable calculations'),
-                  _featureRow(Icons.auto_awesome, 'Reduce',
-                      'Compare travel options and see potential savings'),
+                  _featureRow(Icons.emoji_events_outlined, 'Rewards',
+                      'Earn eco-points for reducing your footprint'),
                 ],
               ),
             ),
