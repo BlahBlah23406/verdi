@@ -117,6 +117,11 @@ The calculation engine lives in [carbon.dart](lib/domain/carbon.dart), with the 
 
 ## Project notes
 
+- [Public demo and deployment](DEPLOYMENT.md) — landing page and browser app on GitHub Pages
+- [11-slide pitch deck](docs/PITCH_DECK.html) ([Markdown source](docs/PITCH_DECK.md))
+- [Founder demo script](docs/FOUNDER_DEMO_SCRIPT.md)
+- [Action-item progress](PROGRESS.md) and [prepared delivery materials](DELIVERY.md)
+
 - [Algorithm details](docs/ALGORITHM.md)
 - [Automatic tracking design and remaining validation](docs/AUTOMATIC_TRACKING.md)
 - [Build roadmap](docs/ROADMAP.md)

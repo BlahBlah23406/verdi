@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Verdi turns everyday travel and electricity data into traceable personal carbon estimates. Explore the working prototype.">
+  <meta name="theme-color" content="#174c38">
+  <title>Verdi — Understand your everyday footprint</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="wrap"><a class="wordmark" href="./" aria-label="Verdi home">Verdi<span aria-hidden="true">↗</span></a><nav aria-label="Main"><a href="#how">How it works</a><a href="#scope">The prototype</a><a class="button small" href="app/">Open demo <span aria-hidden="true">↗</span></a></nav></header>
+  <main id="main">
+    <section class="hero wrap">
+      <div><p class="eyebrow">PERSONAL CARBON TRACKING · WORKING PROTOTYPE</p><h1>Everyday choices.<br>A clearer footprint.</h1><p class="intro">Turn travel and electricity data into carbon estimates you can understand, review, and trace back to their source.</p><div class="actions"><a class="button" href="app/">Explore Verdi <span aria-hidden="true">↗</span></a><a href="#how">See how it works ↓</a></div><p class="caption">Browser demo · No account required · Saved on this device</p></div>
+      <aside class="example" aria-label="Illustrative commute comparison"><p class="eyebrow">ONE JOURNEY. TWO POSSIBILITIES.</p><div class="distance">20 <span>km commute</span></div><div class="route" aria-hidden="true">●<span></span>●</div><div class="measure"><span>Solo passenger car</span><strong>3.71 <small>kg CO₂e</small></strong></div><div class="bar car"></div><div class="measure"><span>Commuter rail</span><strong>1.67 <small>kg CO₂e</small></strong></div><div class="bar rail"></div><div class="saving"><strong>≈ 2.05 kg CO₂e</strong><span>potential reduction</span></div><p class="caption">Illustrative comparison from the repository's EPA 2025 operational averages. Rounded values; actual journeys vary.</p></aside>
+    </section>
+    <section class="band"><div class="wrap band-inner"><p>Understand the number.<br><strong>Then explore a different choice.</strong></p><p>Verdi links reviewed activities to versioned emission factors, so each estimate has a calculation behind it.</p></div></section>
+    <section id="how" class="wrap section"><p class="eyebrow">FROM EVERYDAY DATA TO AN ESTIMATE</p><h2>A footprint with a paper trail.</h2><div class="steps"><article><span class="number">01 / COLLECT</span><h3>Start with evidence.</h3><p>Import daily electricity readings from a CSV, or log a journey manually. Foreground phone trip detection is implemented for Android and iOS.</p></article><article><span class="number">02 / REVIEW</span><h3>Keep people in control.</h3><p>Review imported candidates and check overlaps before confirming. Only confirmed activities enter the footprint.</p></article><article><span class="number">03 / UNDERSTAND</span><h3>See what adds up.</h3><p>Explore monthly totals, inspect each activity's factor and source, and compare travel alternatives in the Reduce tab.</p></article></div></section>
+    <section id="scope" class="wrap section scope"><div><p class="eyebrow">BUILT TODAY</p><h2>Try the working foundation.</h2><p>Open the browser app, complete onboarding, and choose <strong>Load demo data</strong> on an empty Overview to explore with sample activities.</p><a class="button" href="app/">Launch the prototype ↗</a></div><div><ul class="features"><li>Travel and home electricity estimates</li><li>Regional electricity factors and local activity history</li><li>Utility CSV import with a review queue</li><li>Travel comparisons and hypothetical eco-points</li></ul><p class="caption">Browser demo supports manual entry, CSV import and comparisons. Native phone GPS requires Android or iOS; it is unavailable in this web build.</p><a href="examples/utility_readings.csv" download>Download the sample utility CSV ↓</a></div></section>
+    <section class="wrap section next"><p class="eyebrow">THE MULTI-SOURCE VISION</p><h2>More of life, connected.</h2><p>Live utility connections, purchase and flight integrations, waste tracking, background sensing, and verified rewards are roadmap work. Current purchase, flight, and waste interfaces are scaffolding; their factors are placeholders.</p><p class="caption">US pilot estimates cover logged activities, not a complete lifecycle footprint. Missing data does not mean zero emissions. Rewards are preview-only and cannot be redeemed. Device and pilot validation remain ahead.</p></section>
+  </main>
+  <footer class="wrap"><a class="wordmark" href="./">Verdi</a><div><a href="pitch-deck.html">Pitch deck</a><a href="https://github.com/BlahBlah23406/verdi">Source &amp; documentation ↗</a></div><p>Understand your everyday carbon footprint.</p></footer>
+</body>
+</html>
