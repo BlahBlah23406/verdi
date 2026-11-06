@@ -57,7 +57,7 @@ If restoring a prior version is needed, revert the source commit and push to `ma
 
 ## Verification and limitations
 
-Release evidence, workflow run and live verification are recorded in `PROGRESS.md`. Analysis, tests and local web compilation passed on Providence. Earlier network/authentication limitations in `docs/VALIDATION.md` describe a prior session and were not reproduced here.
+Release evidence, workflow run and live verification are recorded in `PROGRESS.md`. [The initial deployment workflow succeeded](https://github.com/BlahBlah23406/verdi/actions/runs/42262264127), and anonymous HTTPS/browser checks verified the public landing page, application and deck. Analysis, tests and local web compilation passed on Providence. Earlier network/authentication limitations in `docs/VALIDATION.md` describe a prior session and were not reproduced here.
 
 The application stores data in the browser on this device. Clearing site data removes it; there is no cloud sync. Native Android/iOS tracking, device permissions, battery behavior and real-world accuracy are outside web deployment validation. Placeholder factors and preview rewards retain the scope described in the README.
 
