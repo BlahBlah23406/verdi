@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'data/activity_store.dart';
+import 'data/automation_store.dart';
 import 'data/settings_store.dart';
 import 'domain/carbon.dart';
 import 'domain/data_source.dart';
 import 'domain/incentive_service.dart';
 import 'features/automation_screen.dart';
+import 'features/institutional_dashboard.dart';
 import 'features/onboarding_screen.dart';
 import 'features/settings_screen.dart';
+import 'services/multi_source/ingestion_orchestrator.dart';
+import 'services/multi_source/source_registry.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -157,6 +161,16 @@ class _HomeState extends State<Home> {
     setState(() => busy = true);
     try {
       await widget.store.save(sample);
+
+      // Seed multi-source review queue using IngestionOrchestrator
+      final autoStore = AutomationStore(widget.store.preferences);
+      final orchestrator = IngestionOrchestrator(
+        registry: MultiSourceRegistry(),
+        automationStore: autoStore,
+        activityStore: widget.store,
+      );
+      await orchestrator.ingest();
+
       if (mounted) {
         setState(() {
           activities = sample;
@@ -179,6 +193,8 @@ class _HomeState extends State<Home> {
     setState(() => busy = true);
     try {
       await widget.store.save([]);
+      final autoStore = AutomationStore(widget.store.preferences);
+      await autoStore.save(const AutomationState([], {}));
       if (mounted) {
         setState(() {
           activities = [];
@@ -252,6 +268,23 @@ class _HomeState extends State<Home> {
           style: TextStyle(fontWeight: FontWeight.w800, letterSpacing: -1),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Institutional Dashboard',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => Scaffold(
+                  appBar: AppBar(
+                    title: const Text('Institutional View'),
+                    backgroundColor: cream,
+                    foregroundColor: forest,
+                  ),
+                  body: const InstitutionalDashboard(),
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.corporate_fare),
+          ),
           IconButton(
             tooltip: 'Settings',
             onPressed: () => Navigator.push(
@@ -422,31 +455,146 @@ class _HomeState extends State<Home> {
         // Demo mode toggle
         if (entries.isEmpty && !demoMode)
           Padding(
-            padding: const EdgeInsets.only(bottom: 20),
+            padding: const EdgeInsets.only(top: 20, bottom: 8),
             child: FilledButton.tonalIcon(
               onPressed: busy ? null : loadDemoData,
               icon: const Icon(Icons.play_circle_outline),
               label: const Text('Load demo data'),
             ),
           ),
-        if (demoMode)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 20),
+        const SizedBox(height: 20),
+        // Demo mode toggle card
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: demoMode ? Colors.orange.shade300 : Colors.grey.shade300,
+            ),
+          ),
+          color: demoMode ? Colors.orange.shade50 : Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               children: [
-                const Icon(Icons.science_outlined, color: Colors.orange, size: 20),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text('Demo mode — sample data loaded',
-                      style: TextStyle(color: Colors.orange, fontWeight: FontWeight.w600)),
+                Icon(
+                  demoMode ? Icons.science : Icons.science_outlined,
+                  color: demoMode ? Colors.orange.shade800 : forest,
                 ),
-                TextButton(
-                  onPressed: busy ? null : clearDemoData,
-                  child: const Text('Clear'),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        demoMode ? 'VC Demo Mode Active' : 'VC Demo Mode',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: demoMode ? Colors.orange.shade900 : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        demoMode
+                            ? 'Simulated multi-source activities & review queue loaded'
+                            : 'Seed multi-source tracking, review queue & institutional data',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: demoMode,
+                  activeThumbColor: forest,
+                  onChanged: busy
+                      ? null
+                      : (val) {
+                          if (val) {
+                            loadDemoData();
+                          } else {
+                            clearDemoData();
+                          }
+                        },
                 ),
               ],
             ),
           ),
+        ),
+        const SizedBox(height: 12),
+        // Institutional View Card
+        Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.grey.shade300),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.corporate_fare, color: forest, size: 22),
+                        SizedBox(width: 8),
+                        Text(
+                          'Institutional Dashboard',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFC7E0CB),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Text(
+                        'Campus & Enterprise',
+                        style: TextStyle(
+                          color: forest,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Cascadia University: 1,420 members · 111.0 t CO₂e · -6.4% MoM trend. Explore department breakdowns and export ESG compliance reports.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => Scaffold(
+                        appBar: AppBar(
+                          title: const Text('Institutional View'),
+                          backgroundColor: cream,
+                          foregroundColor: forest,
+                        ),
+                        body: const InstitutionalDashboard(),
+                      ),
+                    ),
+                  ),
+                  icon: const Icon(Icons.arrow_forward, size: 16),
+                  label: const Text('Open Institutional Dashboard'),
+                ),
+              ],
+            ),
+          ),
+        ),
         const SizedBox(height: 28),
         // Settings summary card
         Card(

@@ -11,6 +11,8 @@ import '../data/activity_store.dart';
 import '../data/automation_store.dart';
 import '../domain/automation.dart';
 import '../domain/carbon.dart';
+import '../services/multi_source/ingestion_orchestrator.dart';
+import '../services/multi_source/source_registry.dart';
 import '../services/phone_tracking.dart';
 
 class AutomationScreen extends StatefulWidget {
@@ -207,6 +209,32 @@ class _AutomationScreenState extends State<AutomationScreen>
     }
   }
 
+  Future<void> syncMultiSource() async {
+    setState(() => busy = true);
+    try {
+      final orchestrator = IngestionOrchestrator(
+        registry: MultiSourceRegistry(),
+        automationStore: store,
+        activityStore: widget.activities,
+      );
+      final result = await orchestrator.ingest();
+      final fresh = store.load();
+      if (mounted) {
+        setState(() {
+          pending = fresh.pending;
+          dismissed = fresh.dismissed;
+        });
+        message(
+          'Multi-source sync complete: ${result.queuedCount} queued, ${result.reconciledCount} reconciled signals, ${result.duplicatesSkipped} duplicates skipped.',
+        );
+      }
+    } catch (_) {
+      message('Multi-source sync encountered an error.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> dismiss(ActivityCandidate candidate) async {
     setState(() {
       busy = true;
@@ -302,6 +330,51 @@ class _AutomationScreenState extends State<AutomationScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Multi-source ingestion',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFC7E0CB),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        '4 Adapters Active',
+                        style: TextStyle(
+                          color: Color(0xFF174C38),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Automated ingestion from Utility API, Public Transit API, Smart IoT, and Bank card feeds with multi-source reconciliation.',
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: busy || saveFailed ? null : syncMultiSource,
+                  icon: const Icon(Icons.sync_alt),
+                  label: const Text('Sync multi-source feeds'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
                 const Text(
                   'Import electricity data',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
@@ -371,17 +444,83 @@ class _AutomationScreenState extends State<AutomationScreen>
 
   Widget candidateCard(ActivityCandidate c) {
     final selected = c.kind ?? selections[c.id];
+    final isReconciled = c.metadata['reconciled'] == true;
+    final confidence = c.confidence;
+
+    String quantityLabel;
+    if (c.kind == ActivityKind.electricity) {
+      quantityLabel = '${c.quantity.toStringAsFixed(2)} kWh electricity';
+    } else if (c.kind == ActivityKind.flight) {
+      quantityLabel = '${c.quantity.toStringAsFixed(0)} passenger-km flight';
+    } else {
+      quantityLabel = '${c.quantity.toStringAsFixed(2)} km detected journey';
+    }
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(
-              c.kind == ActivityKind.electricity
-                  ? '${c.quantity.toStringAsFixed(2)} kWh electricity'
-                  : '${c.quantity.toStringAsFixed(2)} km detected journey',
-              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+            if (isReconciled)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFC7E0CB),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.auto_awesome, size: 14, color: Color(0xFF174C38)),
+                          SizedBox(width: 4),
+                          Text(
+                            'Multi-Source Reconciled',
+                            style: TextStyle(
+                              color: Color(0xFF174C38),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    if (confidence != null)
+                      Text(
+                        '${(confidence * 100).toStringAsFixed(0)}% confidence',
+                        style: const TextStyle(
+                          color: Color(0xFF174C38),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: Text(
+                    quantityLabel,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 18),
+                  ),
+                ),
+                if (!isReconciled && confidence != null)
+                  Text(
+                    '${(confidence * 100).toStringAsFixed(0)}% confidence',
+                    style: TextStyle(
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w500,
+                      fontSize: 12,
+                    ),
+                  ),
+              ],
             ),
             Text(c.start.toLocal().toString().substring(0, 16)),
             const SizedBox(height: 8),

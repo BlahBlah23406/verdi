@@ -37,11 +37,15 @@ class ActivityCandidate {
     required this.quantity,
     required this.description,
     this.kind,
+    this.confidence,
+    this.metadata = const {},
   });
   final String id, source, description;
   final DateTime start, end;
   final double quantity;
   final ActivityKind? kind;
+  final double? confidence;
+  final Map<String, dynamic> metadata;
   Activity confirm(ActivityKind selected) {
     if (kind == ActivityKind.electricity && selected != kind ||
         kind == null && selected.category != 'Travel') {
@@ -67,6 +71,8 @@ class ActivityCandidate {
     'quantity': quantity,
     'description': description,
     'kind': kind?.name,
+    if (confidence != null) 'confidence': confidence,
+    if (metadata.isNotEmpty) 'metadata': metadata,
   };
   factory ActivityCandidate.fromJson(Map<String, dynamic> j) {
     final result = ActivityCandidate(
@@ -79,6 +85,10 @@ class ActivityCandidate {
       kind: j['kind'] == null
           ? null
           : ActivityKind.values.byName(j['kind'] as String),
+      confidence: (j['confidence'] as num?)?.toDouble(),
+      metadata: j['metadata'] is Map
+          ? Map<String, dynamic>.from(j['metadata'] as Map)
+          : const {},
     );
     if (!result.quantity.isFinite ||
         result.quantity <= 0 ||
