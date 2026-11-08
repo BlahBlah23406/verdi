@@ -60,6 +60,7 @@ class ActivityCandidate {
       source: source,
       sourceId: id,
       note: 'Reviewed: $description',
+      factorMetadata: {...metadata, ...?selected.reference?.toJson()},
     );
   }
 

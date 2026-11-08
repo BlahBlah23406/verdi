@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:verdi/data/activity_store.dart';
 import 'package:verdi/data/settings_store.dart';
-import 'package:verdi/main.dart';
+import 'package:verdi/main_legacy.dart';
 
 void main() {
   // Pre-set settings so onboarding is skipped in tests.

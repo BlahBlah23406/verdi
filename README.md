@@ -1,139 +1,89 @@
-# Verdi 🌱
+# Verdi
 
-Automated, multi-source carbon tracking with unprecedented granularity — and incentives for reducing your footprint.
+Verdi connects everyday activity to incentives for lower-impact choices and useful institutional program analytics. Consumers get explainable estimates, personal guidance, a reward ledger and optional round-up pledges. Campuses, employers and eventually financial institutions get a separate application for consented program reporting.
 
-Verdi harnesses everyday sensors, on-device metrics, and third-party user data to build a detailed, down-to-user picture of personal carbon emissions. Instead of asking people to manually log every activity, Verdi correlates data from multiple sources — phone GPS, utility readings, purchase history, flight data, and waste streams — into one transparent, traceable emissions engine.
+This is a **local pilot implementation**, continued from agent-comms `capsule-91fc43f9d941`, repository base `8b3ddbf`. It is not a released financial product. The old public GitHub Pages site does not contain this update.
 
-## The Carton vision
+## Applications
 
-**1. Automated tracking.** Consented phone signals and consumer data sources identify journeys, electricity use, purchases, flights, and waste — then reconcile overlapping evidence into activity candidates. Manual logging is a fallback, not the primary flow.
+| Build | Flutter entry | Data |
+| --- | --- | --- |
+| Consumer pilot | `lib/main.dart` | Empty live database, administrator-issued session |
+| Institution pilot | `lib/main_institution.dart` | Same live database, organization-scoped analyst session |
+| Consumer investor demo | `lib/main_demo.dart` | Prefilled synthetic accounts in a separate SQLite database |
+| Institution investor demo | `lib/main_demo_institution.dart` | Synthetic program reports from the same demo database |
+| Earlier prototype | `lib/main_legacy.dart` | Original device-local tracking and trip review, retained for field validation |
 
-**2. Precision wide-scale tracking on multiple fronts.** Verdi does not stop at car trips and electricity. It tracks product emissions, travel emissions (including flights), waste emissions, and home energy — all correlated into a single footprint.
+Flutter source targets Android, iOS and web. Web release builds and tests are verified. See [current validation](docs/VALIDATION_V3.md) for native build results and limits.
 
-**3. Unprecedented carbon data granularity.** Detailed down-to-user metrics unveil individual-level emission sources. Every activity stores its factor, version, source, and assumptions — fully auditable, no black boxes.
+## Run the investor demo
 
-**4. Incentive system.** Verdi correlates data from various sources to track and reward users for decreasing their carbon footprint. Earn eco-points for month-over-month reductions. Rewards are preview-only in the current prototype; a verified reward ledger requires a backend and trusted baselines.
-
-## What's implemented vs what's on the roadmap
-
-| Feature | Status |
-| --- | --- |
-| Phone GPS trip detection (foreground) | ✅ Implemented |
-| Utility CSV import (electricity) | ✅ Implemented |
-| Manual activity logging | ✅ Implemented |
-| EPA-sourced emission factors (travel, electricity) | ✅ Implemented |
-| Regional electricity factors (eGRID 2023) | ✅ Implemented |
-| Monthly breakdown and travel comparison | ✅ Implemented |
-| Demo mode with sample data | ✅ Implemented |
-| Rewards / incentive preview (rule-based) | ✅ Implemented |
-| Multi-front data source interfaces (purchase, flight, waste) | ✅ Scaffolded (stubs) |
-| Extended emission factors (flights, products, waste) | ✅ Placeholder factors |
-| Live utility provider connections | 🔜 Roadmap (Phase 3) |
-| Purchase / banking data integration | 🔜 Roadmap (Phase 3) |
-| Flight history integration | 🔜 Roadmap (Phase 3) |
-| Waste tracking integration | 🔜 Roadmap (Phase 3) |
-| Background sensor tracking | 🔜 Roadmap (Phase 3) |
-| Verified reward ledger and redemption | 🔜 Roadmap (Phase 4) |
-| Business dashboards and partner reporting | 🔜 Roadmap (Phase 5) |
-
-## From everyday data to an estimate
-
-```text
-Consented phone signals + consumer data sources
-                  ↓
-       Validate and filter evidence
-                  ↓
-       Detect activity candidates
-                  ↓
-       Check duplicates and review
-                  ↓
-       Apply a sourced emission factor
-                  ↓
-       Explain impact, alternatives, and rewards
-```
-
-**Phone signals:** timestamped location samples provide a starting point for detecting journeys. The current detector filters inaccurate fixes and implausible jumps, estimates distance, and separates segments at stops or signal gaps. Transport mode still needs user confirmation.
-
-**Consumer data:** daily electricity readings are the first import path. The data source interface (`DataSource` pattern) is designed to accommodate purchase, flight, and waste data alongside utility readings — stubs are in place for each.
-
-**Review and traceability:** only confirmed candidates enter the footprint. Each activity's data source and calculation assumptions are preserved. Missing evidence is treated as a coverage gap, not proof of zero emissions.
-
-**Incentives:** the `IncentiveService` compares month-over-month emissions and awards preview eco-points (10 points per kg of reduction). This is rule-based and local — no backend needed yet.
-
-## How our algorithm works
-
-Verdi uses a rule-based ingestion and calculation pipeline. Phone location and imported readings produce candidates; only reviewed activities enter the footprint. It does not currently use machine learning.
-
-1. **Collect and review evidence.** Detect a phone journey, import a utility reading, or enter an activity manually. Confirm its type, quantity and date. Check duplicates before accepting it.
-2. **Select the matching factor.** The US pilot supports passenger cars, buses, commuter rail, electricity, and unassisted cycling. Extended placeholder factors cover flights, products, and waste.
-3. **Calculate emissions.** Multiply the quantity by the activity's emission factor:
-
-   ```text
-   estimated emissions (kg CO₂e) = quantity × emission factor
-   ```
-
-   CO₂e means carbon dioxide equivalent: a common unit for comparing greenhouse gases.
-
-4. **Keep the calculation traceable.** Each entry saves the factor value, version, source and assumptions used. Future factor updates do not silently rewrite previous entries.
-5. **Build the monthly picture.** Select entries within the current calendar month, ignore duplicate IDs, and sum emissions by category.
-6. **Compute rewards.** Compare this month's total to last month's. If emissions dropped, award eco-points proportional to the reduction.
-
-### Where the factors come from
-
-The core catalog is pinned to the [EPA's January 2025 Emission Factors Hub](https://www.epa.gov/system/files/documents/2025-01/ghg-emission-factors-hub-2025.pdf): travel from Table 10, electricity from Table 6, and global warming potentials from Table 11.
-
-Extended factors for the Carton multi-front vision are research-sourced placeholders:
-- **Flights:** UK DEFRA 2024 conversion factors (short-haul and long-haul economy).
-- **Products:** EPA EIO-LCA-based estimate (~0.35 kg CO₂e/USD).
-- **Waste:** EPA WARM model mixed MSW landfill factor.
-
-These placeholders carry higher uncertainty and need category-specific refinement before pilot use.
-
-### Example: comparing a 20 km commute
-
-| Choice | Factor | Estimated emissions |
-| --- | ---: | ---: |
-| Solo passenger car | 0.18552 kg CO₂e/km | 3.71 kg CO₂e |
-| Commuter rail | 0.08325 kg CO₂e/passenger-km | 1.67 kg CO₂e |
-
-```text
-potential reduction = distance × (car factor − alternative factor)
-                    ≈ 2.05 kg CO₂e for this journey
-
-preview eco-points = floor(unrounded potential reduction × 10)
-                   = 20 points
-```
-
-### What these estimates cover
-
-- Travel estimates cover operations, assuming one occupant for a car. Bus and commuter rail factors are already per passenger.
-- Electricity uses a national fallback or selected regional factor, and excludes transmission losses.
-- Extended factors (flights, products, waste) are placeholders with higher uncertainty.
-- Manufacturing, upstream fuel production, and cycling-related food are outside the current calculation boundaries.
-- Totals cover only logged activities. Missing entries do not mean zero emissions.
-- Rewards remain a preview — no points are redeemable or transferable yet.
-
-The calculation engine lives in [carbon.dart](lib/domain/carbon.dart), with the versioned catalog in [emission_factors.dart](lib/domain/emission_factors.dart), the data source pattern in [data_source.dart](lib/domain/data_source.dart), and the incentive system in [incentive_service.dart](lib/domain/incentive_service.dart).
-
-## Project notes
-
-- [Public demo and deployment](DEPLOYMENT.md) — landing page and browser app on GitHub Pages
-- [11-slide pitch deck](docs/PITCH_DECK.html) ([Markdown source](docs/PITCH_DECK.md))
-- [Founder demo script](docs/FOUNDER_DEMO_SCRIPT.md)
-- [Action-item progress](PROGRESS.md) and [prepared delivery materials](DELIVERY.md)
-
-- [Algorithm details](docs/ALGORITHM.md)
-- [Automatic tracking design and remaining validation](docs/AUTOMATIC_TRACKING.md)
-- [Build roadmap](docs/ROADMAP.md)
-- [File overview](docs/FILES.md)
-
-## Development
+From this directory:
 
 ```sh
 flutter pub get
-flutter analyze
-flutter test
-flutter build web
+flutter build web --release -t lib/main_demo.dart --dart-define=VERDI_API=http://127.0.0.1:8787
+python3 backend/platform.py --demo --db /tmp/verdi-demo.sqlite --static build/web --port 8787
 ```
 
-Published factors are average estimates; rewards remain a preview until eligibility and verification are implemented.
+Open `http://127.0.0.1:8787/` for the consumer and `http://127.0.0.1:8787/?view=institution` for the institution. The query switch exists only in the demo entry point. Demo tokens grant access only to fictional records.
+
+The database seeds 72 fictional people across three organizations, with daily September/October 2026 travel and electricity, bank transactions, connection state and separate sharing consent. The consumer Alex Morgan belongs to Cascadia. Twenty people per institution initially consent to reports. Program figures are synthetic, not traction.
+
+Walkthrough: check completed month under Rewards, simulate a redemption, enable the capped round-up pledge, sync Connections, confirm the new travel receipt, and inspect the institution report. Toggle sharing off to see aggregates change after refresh. Refresh/restart preserves the ledger. No money moves and no external reward is delivered.
+
+For Android emulator development use `--dart-define=VERDI_API=http://10.0.2.2:8787`. Real devices need a reachable HTTPS backend, not the phone's loopback address. Configure an HTTPS API for mobile distribution.
+
+## Run an empty live pilot
+
+```sh
+python3 backend/provision.py --db /tmp/verdi-live.sqlite --config /tmp/verdi-private.json --user pilot-1 --name 'Pilot User' --org pilot-org
+python3 backend/platform.py --db /tmp/verdi-live.sqlite --config /tmp/verdi-private.json
+flutter run -t lib/main.dart --dart-define=VERDI_API=http://127.0.0.1:8787
+```
+
+The administrator finds the newly issued bearer session in the private config and gives it to the intended pilot user. Enter it at sign-in. Sessions stay in memory in the app. Provision an analyst with `--role analyst` in the same organization. Restart the server after provisioning. This is simple administrator-provisioned pilot authentication, not consumer account signup, OIDC, credential recovery, or a production authorization service.
+
+Enable Home energy, then import a CSV with `record_id,date,kwh`. Imports enter review before confirmation. Travel imports also have a normalized backend endpoint. IoT submeter readings are supporting evidence and do not add to whole-home totals; their capture and meter-boundary flows still need product integration. The earlier native phone/GPS screen remains in the legacy entry point and is not automatically uploaded to the new backend.
+
+## Algorithms and accounting
+
+- Core operational travel and electricity estimates use pinned EPA 2025 factors with saved factor versions. The server deliberately uses a labeled national electricity fallback throughout the US. It does not apply the earlier unreviewed regional mappings.
+- Stable provider record IDs prevent replay from creating duplicate entries. Conflicting corrections fail atomically for review. Confirmed, pending and dismissed states persist.
+- Reconciliation no longer merges same-source records, unrelated travel categories, or nested electricity meters. IDs use stable canonical encodings. Correlated sources do not artificially inflate confidence. Scores remain heuristics, not calibrated probabilities.
+- A bank payment cannot establish a journey's mode, physical quantity or travel date. No mileage inference from fare, flight-ticket or fuel spend remains.
+- Monthly pilot rewards require complete daily travel and utility coverage for two completed months. Daily averages normalize month length. The rule floors at 10 points per estimated kg and caps awards at 2,000 points. It does not prove additionality or causality. Imported evidence is not provider-attested, so this is not a verified financial incentive system.
+- SQLite transactions and unique keys prevent duplicate reward claims, concurrent overspending and repeated redemption requests. Real redemption is disabled without a fulfillment system.
+- Round-ups use integer cents. Whole dollars, pending charges and refunds contribute zero. Monthly pledge caps and replay handling are deterministic. This version records **demo pledges**, not transfers, donations, retirement of offsets or receipts for tax deductions.
+- Flights, food, products and waste need reviewed quantity models and factors before entering the new backend. Old placeholder factors remain isolated in the earlier prototype.
+
+## Provider integrations
+
+The backend implements Plaid `/transactions/sync` for a **previously authorized** account. Configure `PLAID_USER`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ACCESS_TOKEN` and `PLAID_ENV` on the server. Default environment is `sandbox`. Enable the bank connection and sync. Paging completes before SQLite updates the cursor. A failed/mutated page retains the old cursor. Pending replacements and removals update the transaction ledger.
+
+The consumer Plaid Link/OAuth flow, multi-item encrypted token vault, webhooks and account revocation at the provider still need integration. Disconnect currently stops Verdi imports but does not revoke provider tokens. No Plaid credentials or live account were supplied, so this adapter has protocol tests, not a credentialed live validation.
+
+Live utility data works through normalized CSV imports and review. Utility OAuth, smart-device authorization and transit-provider API agreements remain external dependencies. Demo connection fixtures are synthetic and clearly labeled.
+
+## Ollama Cloud coach
+
+Set `OLLAMA_HOST=https://ollama.com`, `OLLAMA_MODEL`, and `OLLAMA_API_KEY` in a private JSON file passed through `--config`, or in server environment variables. Keys never enter Flutter. Restart the API after configuration. Only a compact calculated travel scenario leaves the server, without names, transactions or raw GPS. Model text is advisory; it cannot change factors, issue points, execute tools or move money. A timed-out/failed model call falls back to calculated guidance. Model prose itself still requires factual evaluation.
+
+Official integration sources: [Ollama authentication](https://github.com/ollama/ollama/blob/main/docs/api/authentication.mdx), [Plaid sync](https://plaid.com/docs/api/products/transactions/#transactionssync), [EPA factors](https://www.epa.gov/climateleadership/ghg-emission-factors-hub).
+
+## Institutional reports
+
+Analysts see only their assigned organization's fixed aggregates from sharing participants. A report/cell requires at least ten contributing participants. There is no consumer journal or bank record endpoint for analysts. Reports identify period, factor boundaries and participant coverage. They are not an audited corporate inventory or a causal impact study. The threshold is basic suppression, not differential privacy or a guarantee against repeated-query inference.
+
+## Verification
+
+```sh
+flutter analyze
+flutter test
+dart run tool/check_algorithm.dart
+dart run tool/check_automation.dart
+python3 backend/test_platform.py -v
+python3 backend/test_connectors.py -v
+```
+
+The backend intentionally binds loopback. Before a real hosted pilot, add a production server behind HTTPS, managed identity, secret storage, database backups, observability, rate limits, provider-attested imports and incident/recovery processes. Do not expose the standard-library local test server directly to the internet.

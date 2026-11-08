@@ -1,5 +1,6 @@
 // Overview: Reconciliation engine combining multi-source signals (phone GPS, bank inference, transport API, utility readings).
 import 'dart:math' as math;
+import 'dart:convert';
 
 import '../../domain/automation.dart';
 import '../../domain/carbon.dart';
@@ -37,7 +38,8 @@ class ReconciledSignal {
 /// high-confidence candidates.
 class ReconciliationEngine {
   const ReconciliationEngine({
-    this.distanceToleranceRatio = 0.25, // 25% acceptable discrepancy between sensors/inferences
+    this.distanceToleranceRatio =
+        0.25, // 25% acceptable discrepancy between sensors/inferences
     this.absoluteDistanceToleranceKm = 1.8,
     this.timeToleranceMinutes = 30,
   });
@@ -84,7 +86,11 @@ class ReconciliationEngine {
         currentCluster.add(current);
 
         for (final other in candidates) {
-          if (!visited.contains(other) && _signalsOverlap(current, other)) {
+          if (!visited.contains(other) &&
+              _signalsOverlap(current, other) &&
+              currentCluster.every(
+                (member) => _signalsOverlap(member, other),
+              )) {
             visited.add(other);
             queue.add(other);
           }
@@ -99,23 +105,35 @@ class ReconciliationEngine {
 
   /// Evaluates whether two candidates represent overlapping activity signals.
   bool _signalsOverlap(ActivityCandidate a, ActivityCandidate b) {
-    // 1. Verify domain compatibility
-    final aIsTravel = a.kind == null || a.kind!.category == 'Travel' || a.source.contains('phone') || a.source.contains('transport') || a.source.contains('bank');
-    final bIsTravel = b.kind == null || b.kind!.category == 'Travel' || b.source.contains('phone') || b.source.contains('transport') || b.source.contains('bank');
-
-    final aIsHome = a.kind == ActivityKind.electricity || a.source.contains('utility') || a.source.contains('smart-iot');
-    final bIsHome = b.kind == ActivityKind.electricity || b.source.contains('utility') || b.source.contains('smart-iot');
-
-    if (aIsTravel != bIsTravel && aIsHome != bIsHome) {
-      return false; // Different categories do not reconcile
+    if (a.source == b.source) return false;
+    final aHome = a.kind == ActivityKind.electricity;
+    final bHome = b.kind == ActivityKind.electricity;
+    if (aHome || bHome) {
+      // Whole-home and appliance meters are nested boundaries, not corroboration.
+      return aHome &&
+          bHome &&
+          a.metadata['meterId'] != null &&
+          a.metadata['meterId'] == b.metadata['meterId'] &&
+          a.start == b.start &&
+          a.end == b.end;
     }
-
-    // 2. Check temporal proximity
-    final tolerance = Duration(minutes: timeToleranceMinutes);
-    final aWindowStart = a.start.subtract(tolerance);
-    final aWindowEnd = a.end.add(tolerance);
-
-    return aWindowStart.isBefore(b.end) && b.start.isBefore(aWindowEnd);
+    const ground = {
+      ActivityKind.car,
+      ActivityKind.bus,
+      ActivityKind.train,
+      ActivityKind.bicycle,
+      null,
+    };
+    if (!ground.contains(a.kind) || !ground.contains(b.kind)) return false;
+    if (a.kind != null && b.kind != null && a.kind != b.kind) return false;
+    final aAccount = a.metadata['accountId'];
+    final bAccount = b.metadata['accountId'];
+    if (aAccount != null && bAccount != null && aAccount != bAccount) {
+      return false;
+    }
+    return a.start.isBefore(b.end) &&
+        b.start.isBefore(a.end) &&
+        a.start.difference(b.start).abs().inMinutes <= timeToleranceMinutes;
   }
 
   /// Combines a cluster of overlapping candidates into a single reconciled candidate.
@@ -129,13 +147,9 @@ class ReconciliationEngine {
 
     // Determine category and travel mode
     // If any source identifies a specific travel mode (e.g. train, bus), prioritize it over phone null kind
-    ActivityKind? resolvedKind;
-    for (final c in cluster) {
-      if (c.kind != null) {
-        resolvedKind = c.kind;
-        break;
-      }
-    }
+    final typed = cluster.where((c) => c.kind != null).toList()
+      ..sort((a, b) => sourceFidelities[b]!.compareTo(sourceFidelities[a]!));
+    final resolvedKind = typed.isEmpty ? null : typed.first.kind;
 
     // Check tolerance agreement across quantities
     final quantities = cluster.map((c) => c.quantity).toList();
@@ -145,7 +159,8 @@ class ReconciliationEngine {
     final relDiff = maxQ > 0 ? diff / maxQ : 0.0;
 
     final agreedWithinTolerance =
-        relDiff <= distanceToleranceRatio || diff <= absoluteDistanceToleranceKm;
+        relDiff <= distanceToleranceRatio ||
+        diff <= absoluteDistanceToleranceKm;
 
     // Determine quantity and strategy
     double reconciledQuantity;
@@ -175,7 +190,9 @@ class ReconciliationEngine {
           totalWeight += w;
         }
         reconciledQuantity = totalWeight > 0 ? weightedSum / totalWeight : minQ;
-        reconciledQuantity = double.parse(reconciledQuantity.toStringAsFixed(2));
+        reconciledQuantity = double.parse(
+          reconciledQuantity.toStringAsFixed(2),
+        );
         strategy = ReconciliationStrategy.averagedWithinTolerance;
       }
     } else {
@@ -184,31 +201,32 @@ class ReconciliationEngine {
       strategy = ReconciliationStrategy.conflictPrioritized;
     }
 
-    // Compute improved confidence from multi-source corroboration
-    // Formula: 1 - product of unreliability factors: P(error) = prod(1 - C_i)
-    var unreliability = 1.0;
-    for (final c in cluster) {
-      final conf = sourceFidelities[c]!;
-      unreliability *= (1.0 - conf);
-    }
-    final combinedConfidence = math.min(0.99, math.max(highestFidelity + 0.03, 1.0 - unreliability));
-    final confidenceImprovement = double.parse(
-      (combinedConfidence - highestFidelity).clamp(0.0, 0.5).toStringAsFixed(2),
-    );
+    // Sources may be correlated. This score is a heuristic, not calibrated probability.
+    final combinedConfidence = agreedWithinTolerance
+        ? highestFidelity
+        : highestFidelity * 0.8;
+    const confidenceImprovement = 0.0;
 
     // Form composite timestamps
-    final earliestStart = cluster.map((c) => c.start).reduce((a, b) => a.isBefore(b) ? a : b);
-    final latestEnd = cluster.map((c) => c.end).reduce((a, b) => a.isAfter(b) ? a : b);
+    final earliestStart = cluster
+        .map((c) => c.start)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final latestEnd = cluster
+        .map((c) => c.end)
+        .reduce((a, b) => a.isAfter(b) ? a : b);
 
     // Form composite description
     final sourceNames = cluster.map((c) => c.source).toSet().toList();
-    final sourceSummary = cluster.map((c) => '${c.source} (${c.quantity.toStringAsFixed(1)})').join(', ');
+    final sourceSummary = cluster
+        .map((c) => '${c.source} (${c.quantity.toStringAsFixed(1)})')
+        .join(', ');
     final note = agreedWithinTolerance
         ? 'Reconciled from ${cluster.length} sources: $sourceSummary. Multi-source agreement within ${(relDiff * 100).toStringAsFixed(1)}%.'
-        : 'Reconciled from ${cluster.length} sources with prioritized verified source: $sourceSummary.';
+        : 'Conflicting evidence requires review; selected higher-ranked source from ${cluster.length} signals: $sourceSummary.';
 
     final candidateIds = cluster.map((c) => c.id).toList()..sort();
-    final reconciledId = 'reconciled:${candidateIds.join('|').hashCode.abs()}';
+    final reconciledId =
+        'reconciled:${base64Url.encode(utf8.encode(jsonEncode(candidateIds)))}';
 
     final reconciledCandidate = ActivityCandidate(
       id: reconciledId,
@@ -225,6 +243,8 @@ class ReconciliationEngine {
         'toleranceAgreed': agreedWithinTolerance,
         'relativeDiscrepancy': double.parse(relDiff.toStringAsFixed(3)),
         'confidenceImprovement': confidenceImprovement,
+        'confidenceType': 'uncalibrated heuristic',
+        'requiresReview': true,
         'mergedCandidateIds': candidateIds,
         'contributingSources': sourceNames,
         'sourceQuantities': {for (final c in cluster) c.source: c.quantity},

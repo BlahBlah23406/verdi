@@ -25,7 +25,18 @@ jobs:
       - run: flutter test
       - run: dart run tool/check_algorithm.dart
       - run: dart run tool/check_automation.dart
-      - run: flutter build web --release --base-href /verdi/app/
+      - name: Require configured HTTPS backend
+        env:
+          VERDI_API_URL: ${{ vars.VERDI_API_URL }}
+        run: |
+          case "$VERDI_API_URL" in
+            https://*) ;;
+            *) echo "Set repository variable VERDI_API_URL to the hosted pilot API before deploying."; exit 1 ;;
+          esac
+      - name: Build consumer pilot
+        env:
+          VERDI_API_URL: ${{ vars.VERDI_API_URL }}
+        run: flutter build web --release --base-href /verdi/app/ --dart-define="VERDI_API=$VERDI_API_URL"
       - run: dart run tool/package_site.dart
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

@@ -51,6 +51,15 @@ class IncentiveService {
     required List<Activity> previousMonth,
     required DateTime now,
   }) {
+    // This local legacy preview cannot establish comparable coverage.
+    // Empty or incomplete current journals must never look like verified reductions.
+    final currentDays = currentMonth.map((a) => a.date.day).toSet().length;
+    final previousDays = previousMonth.map((a) => a.date.day).toSet().length;
+    final priorEnd = DateTime(now.year, now.month, 0);
+    if (currentDays < DateTime(now.year, now.month + 1, 0).day ||
+        previousDays < priorEnd.day) {
+      return null;
+    }
     final current = CarbonEngine().total(
       currentMonth.where((a) => a.isPilotEstimate),
     );
@@ -70,7 +79,8 @@ class IncentiveService {
       date: now,
       kgReduced: reduction,
       points: points,
-      description: 'Reduced emissions by ${reduction.toStringAsFixed(1)} kg CO₂e '
+      description:
+          'Reduced emissions by ${reduction.toStringAsFixed(1)} kg CO₂e '
           'compared to last month.',
     );
   }
@@ -83,7 +93,7 @@ class IncentiveService {
     required double potentialSavingKg,
     required DateTime date,
   }) {
-    if (potentialSavingKg < 0) {
+    if (!potentialSavingKg.isFinite || potentialSavingKg < 0) {
       throw ArgumentError('Potential saving must be non-negative.');
     }
     return RewardEntry(
@@ -91,7 +101,8 @@ class IncentiveService {
       date: date,
       kgReduced: potentialSavingKg,
       points: (potentialSavingKg * pointsPerKg).floor(),
-      description: 'Preview: swap a car journey for a lower-emission alternative.',
+      description:
+          'Preview: swap a car journey for a lower-emission alternative.',
     );
   }
 

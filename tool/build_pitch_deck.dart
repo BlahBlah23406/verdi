@@ -1,3 +1,4 @@
+// Legacy deck generator. Current VC deck: docs/Verdi-VC-Product-Update.pptx.
 // Generates a self-contained, printable deck from the reviewed Markdown source.
 import 'dart:convert';
 import 'dart:io';

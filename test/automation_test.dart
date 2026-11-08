@@ -9,7 +9,7 @@ import 'package:verdi/data/automation_store.dart';
 import 'package:verdi/data/settings_store.dart';
 import 'package:verdi/domain/automation.dart';
 import 'package:verdi/domain/carbon.dart';
-import 'package:verdi/main.dart';
+import 'package:verdi/main_legacy.dart';
 
 import '../tool/check_automation.dart' as checks;
 
