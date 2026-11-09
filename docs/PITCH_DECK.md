@@ -19,10 +19,10 @@ Use arrow keys, Page Up/Down, Home/End, or the bottom controls. N opens notes, G
 7. Optional contributions and controls
 8. Actual institutional product and program insight
 9. Calculated scenarios and AI explanation
-10. Implemented product and next validation
-11. Proposed funding timeline and potential sources
+10. Revenue model: premium subscriptions, sponsorships, consulting/data and proposed offset service
+11. Business document Year 1–3 revenue forecast
 12. Focused pilot conversation
 
-Most slides use diagrams, symbols or actual product screenshots with short text. Financing is one milestone-based timeline: prepare in months 0–3, pilot in months 3–6, and expand in months 6–12. These are proposed windows. Potential sources include founder resources, student competitions, paid design partners, program sponsors, angels and accelerators; none is a commitment.
+Most slides use diagrams, symbols or actual product screenshots with short text. Economics follow the business document's four revenue streams and three-year plan. Year 1–3 annual revenue totals are $603,600, $1,207,200 and $2,294,400. Premium subscription assumptions are $15/month and 2,000/4,000/8,000 subscribers. Consulting is modeled at $10,000/month for 1/2/3 clients. Figures are original planning assumptions, not actual sales or a newly dated forecast. The original 2025–2027 calendar labels are shown as Year 1–3. The source has inconsistent monthly totals and unresolved offset margins; no offset contribution is automatically treated as earned revenue. The prior invented 0–12 month fundraising roadmap has been removed.
 
 Notes distinguish implemented behavior, synthetic demo data and unvalidated business hypotheses. Live credentialed AI testing, provider authorization, physical-device validation and partner fulfillment remain dependencies. The earlier PowerPoint/PDF deck is retained as a prior version; this web deck supersedes it and does not repeat its financing terms or founder credits.

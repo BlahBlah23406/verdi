@@ -1,6 +1,6 @@
 # Verdi Ten Minute Pitch Speech
 
-1294 spoken words. 135 words per minute plus 26 seconds of visual pauses.
+1283 spoken words. 135 words per minute plus 30 seconds of visual pauses.
 
 ## Slide 1 Verdi
 
@@ -74,21 +74,21 @@ Visual cue: Show the journey comparison. Keep the computed scenario separate fro
 
 The coaching layer helps a person interpret an action. For example, I can calculate a scenario that replaces part of a car journey with a comparable bus journey, then explain the assumptions and possible difference. I have implemented an Ollama Cloud connection for that explanation, with calculated guidance available if the model is unavailable. A live credentialed AI test is still pending. The model does not choose the emission factor, issue points or control money. Those decisions remain in code and the ledger. AI should make the next choice clearer. I do not want confident language to hide gaps in the underlying evidence.
 
-## Slide 10 Where the product stands
+## Slide 10 How Verdi makes money
 
 7:35–8:20
 
-Visual cue: Point to built capabilities first, then the remaining external dependencies.
+Visual cue: Trace the four customer payments into Verdi. Separate contributions from earned service revenue.
 
-There is a concrete foundation here today. I have Flutter consumer and institutional interfaces, a shared SQLite backend, persistent review and consent flows, and a reward ledger. The browser builds work, and Android and iOS Simulator builds succeed. Verdi's checks cover the calculation logic, duplicate handling, reward replay, concurrent redemption and access boundaries. I also have a server-side Plaid sync adapter for an already authorized account, tested against the provider protocol. That does not mean consumer onboarding or live utility and transit connections are finished. Physical-device tracking validation, trusted provider baselines, and real reward fulfillment remain important work. Verdi's next milestone is a reliable consented pilot that can produce evidence beyond a demonstration.
+Verdi's business document proposes four revenue streams. Premium users pay fifteen dollars a month for enhanced personal services. Sponsors pay to reach participating users through relevant offers. Organizations buy consulting and data services; the plan models ten thousand dollars a month per client. The fourth stream is a proposed carbon-offset service. Customer contributions would fund projects, while Verdi would need a defined service fee or margin. The document does not reconcile that margin, so contribution volume cannot simply become revenue. Institutional analytics can support the consulting and data offering. These are the commercial paths I need to validate alongside the working product.
 
-## Slide 11 Capital follows the next proof
+## Slide 11 The three year revenue plan
 
 8:20–9:15
 
-Visual cue: Follow the three-stage funding timeline. The months are proposed windows, not commitments.
+Visual cue: Compare Year 1, Year 2 and Year 3. The colored segments represent the same four revenue streams.
 
-Verdi's funding plan follows those milestones. In an initial zero-to-three-month window, I would focus on integration readiness and pilot preparation. Potential support includes founder resources, student startup competitions and university entrepreneurship programs. The Dempsey Startup Competition is one route to explore, subject to founder eligibility and its application cycle. In a proposed three-to-six-month pilot window, I would pursue a paid design partnership or sponsored reward budget with a campus, employer or financial institution. After a pilot produces credible evidence of retention and buyer demand, I could approach angels or accelerators for a pre-seed round to expand the product. These are potential sources, not secured commitments. The timing should follow what I learn, rather than forcing a large raise ahead of the evidence.
+Here is the three-year economic timeline from the business document. Year one targets two thousand premium subscribers and one consulting client, with total annual revenue of six hundred three thousand six hundred dollars. Year two models four thousand subscribers and two consulting clients, reaching about one point two one million dollars. Year three models eight thousand subscribers and three consulting clients, reaching about two point two nine million. Sponsorship and offset-service revenue also grow in that plan. These are original planning assumptions, not actual sales or a newly dated forecast. The source has inconsistencies in its monthly tables and offset economics; those need reconciliation before investor diligence. My next step is to test pricing, retention and buyer demand through a real pilot.
 
 ## Slide 12 The next proof is a real pilot
 
