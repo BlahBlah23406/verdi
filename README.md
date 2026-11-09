@@ -87,3 +87,7 @@ python3 backend/test_connectors.py -v
 ```
 
 The backend intentionally binds loopback. Before a real hosted pilot, add a production server behind HTTPS, managed identity, secret storage, database backups, observability, rate limits, provider-attested imports and incident/recovery processes. Do not expose the standard-library local test server directly to the internet.
+
+## Current investor presentation
+
+The new visual [web deck](docs/PITCH_DECK.html) credits Shayaan Haq as sole founder. [Published private deck](https://verdi-product-pitch.arcticmount4.chatgpt.site) · [Ten-minute speech](https://docs.google.com/document/d/1A5xjrClxmx4lrV-JX8B0lFH6Rkk-mqRQAQt8Z8MexGI/edit). Details and controls: [pitch guide](docs/PITCH_DECK.md).
