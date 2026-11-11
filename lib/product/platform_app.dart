@@ -7,8 +7,13 @@ import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 
 import '../domain/automation.dart';
+import '../features/institution_map_view.dart'
+    hide ink, paper, lime, forest, cream, amber, coral, sage;
+import '../features/factor_analysis_view.dart'
+    hide ink, paper, lime, forest, cream, amber, coral, sage;
 
 const ink = Color(0xFF163D32);
+const forest = Color(0xFF174C38);
 const paper = Color(0xFFF4F5EE);
 const lime = Color(0xFFD6EC92);
 
@@ -88,6 +93,7 @@ class _PlatformHomeState extends State<PlatformHome> {
   String? error;
   bool busy = false;
   int tab = 0;
+  int institutionTab = 0;
   String period = '2026-10';
   final tokenController = TextEditingController();
   @override
@@ -305,28 +311,49 @@ class _PlatformHomeState extends State<PlatformHome> {
         ),
       ],
     ),
-    bottomNavigationBar: !widget.institutional && data != null
+    bottomNavigationBar: data != null
         ? NavigationBar(
-            selectedIndex: tab,
-            onDestinationSelected: (value) => setState(() => tab = value),
-            destinations: const [
-              NavigationDestination(
-                icon: Icon(Icons.space_dashboard_outlined),
-                label: 'Today',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.hub_outlined),
-                label: 'Connections',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.redeem_outlined),
-                label: 'Rewards',
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.manage_accounts_outlined),
-                label: 'Your data',
-              ),
-            ],
+            selectedIndex: widget.institutional ? institutionTab : tab,
+            onDestinationSelected: (value) => setState(() {
+              if (widget.institutional) {
+                institutionTab = value;
+              } else {
+                tab = value;
+              }
+            }),
+            destinations: widget.institutional
+                ? const [
+                    NavigationDestination(
+                      icon: Icon(Icons.analytics_outlined),
+                      label: 'Overview',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.map_outlined),
+                      label: 'Carbon Map',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.insights_outlined),
+                      label: 'Factor Analysis',
+                    ),
+                  ]
+                : const [
+                    NavigationDestination(
+                      icon: Icon(Icons.space_dashboard_outlined),
+                      label: 'Today',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.hub_outlined),
+                      label: 'Connections',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.redeem_outlined),
+                      label: 'Rewards',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(Icons.manage_accounts_outlined),
+                      label: 'Your data',
+                    ),
+                  ],
           )
         : null,
   );
@@ -718,6 +745,23 @@ class _PlatformHomeState extends State<PlatformHome> {
       (s, r) => s + (r['kg'] as num).toDouble(),
     );
     final members = data!['consentingParticipants'] as int;
+
+    if (institutionTab == 1) {
+      return [
+        InstitutionMapView(
+          organizationName: '${(data!['organization'] as String?)?.toUpperCase() ?? 'CASCADIA'} UNIVERSITY',
+        ),
+      ];
+    }
+
+    if (institutionTab == 2) {
+      return [
+        FactorAnalysisView(
+          totalBaselineTonnes: (total / 1000.0) > 0 ? (total / 1000.0) : 263.7,
+        ),
+      ];
+    }
+
     return [
       title('A clearer view of your program'),
       Text(
@@ -743,6 +787,93 @@ class _PlatformHomeState extends State<PlatformHome> {
             'Per consenting participant',
             '${(total / members).toStringAsFixed(1)} kg',
             'Observed activities only',
+          ),
+        ],
+      ),
+      const SizedBox(height: 18),
+      Wrap(
+        spacing: 14,
+        runSpacing: 14,
+        children: [
+          SizedBox(
+            width: 360,
+            child: box(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: forest.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.map_outlined, color: forest, size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Carbon Map & Corridors',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Visualize commuter routes and specific physical campus nodes with high carbon output.',
+                    style: TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 14),
+                  button(
+                    'Explore Routes & Map',
+                    () => setState(() => institutionTab = 1),
+                    icon: Icons.explore_outlined,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(
+            width: 360,
+            child: box(
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFD34528).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(Icons.insights_outlined, color: Color(0xFFD34528), size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Factor Sensitivity & Drivers',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Analyze mode choice, distance, and grid determinants with an interactive policy simulator.',
+                    style: TextStyle(fontSize: 13, color: Colors.black87),
+                  ),
+                  const SizedBox(height: 14),
+                  button(
+                    'Analyze Factor Drivers',
+                    () => setState(() => institutionTab = 2),
+                    icon: Icons.tune_outlined,
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
       ),
