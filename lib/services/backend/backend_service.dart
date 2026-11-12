@@ -106,8 +106,9 @@ class BackendService {
   /// Explicit backup of confirmed activities; no raw location or pending imports.
   /// Existing ciphertext is immutable. Retry safely skips already uploaded IDs.
   Future<int> backup(List<Activity> activities) async {
-    if (_backupBusy)
+    if (_backupBusy) {
       throw StateError('An encrypted backup is already running.');
+    }
     _backupBusy = true;
     try {
       return await _backup(activities);
@@ -160,7 +161,9 @@ class BackendService {
           .select('id')
           .eq('record_token', envelope.recordToken)
           .limit(1);
-      if (exists.isNotEmpty) continue;
+      if (exists.isNotEmpty) {
+        continue;
+      }
       try {
         await client.from('activity_ledger').insert({
           'user_id': owner,
@@ -179,10 +182,11 @@ class BackendService {
     _checkNative();
     final owner = userId;
     final key = await keys.read(owner);
-    if (key == null)
+    if (key == null) {
       throw StateError(
         'The ledger key for this account is unavailable on this device.',
       );
+    }
     final result = <Activity>[];
     var offset = 0;
     const pageSize = 100;
@@ -201,17 +205,20 @@ class BackendService {
           ),
         );
       }
-      if (rows.length < pageSize) return result;
+      if (rows.length < pageSize) {
+        return result;
+      }
       offset += pageSize;
     }
   }
 
   Future<void> deleteCloudLedger() async {
     _checkNative();
-    if (_backupBusy)
+    if (_backupBusy) {
       throw StateError(
         'Wait for the current backup before deleting the ledger.',
       );
+    }
     // Cascading FK removes this owner's ciphertext and releases its vault claim.
     await client.from('ledger_vaults').delete().eq('user_id', userId);
   }
