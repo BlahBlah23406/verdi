@@ -2,6 +2,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'consent_rollup_card.dart';
 
 const forest = Color(0xFF174C38);
 const cream = Color(0xFFF6F7F2);
@@ -126,7 +127,8 @@ class OrganizationProfile {
       'categoryRollup': categoryBreakdown,
       'topContributors': topContributors.map((t) => t.toJson()).toList(),
       'monthlyTrend': monthlyTrend.map((m) => m.toJson()).toList(),
-      'standard': 'GHG Protocol Corporate Standard / EPA eGRID Scope 1, 2, 3 Commuter Pilot',
+      'standard': 'Illustrative sample scenario; not audited or certified for compliance',
+      'sampleData': true,
     };
   }
 }
@@ -357,7 +359,7 @@ class _InstitutionalDashboardState extends State<InstitutionalDashboard> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'GHG Protocol Audit Report (${selectedOrg.reportingMonth}) ready for ESG compliance export.',
+                'Sample scenario report (${selectedOrg.reportingMonth}). Estimates only; not an audited inventory.',
                 style: const TextStyle(fontSize: 14),
               ),
               const SizedBox(height: 12),
@@ -442,11 +444,13 @@ class _InstitutionalDashboardState extends State<InstitutionalDashboard> {
         ),
         const SizedBox(height: 8),
         Text(
-          'Aggregated campus and enterprise roll-up with multi-source verified tracking data.',
+          'Sample data only. Explore consent-based personal aggregation and illustrative organization reporting.',
           style: TextStyle(fontSize: 15, color: Colors.grey.shade700),
         ),
         const SizedBox(height: 24),
 
+        ConsentRollupCard(key: ValueKey(org.id), organizationId: org.id),
+        const SizedBox(height: 24),
         // Organization Selector Card
         Card(
           elevation: 0,

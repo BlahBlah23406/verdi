@@ -356,7 +356,7 @@ class _AutomationScreenState extends State<AutomationScreen>
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Automated ingestion from Utility API, Public Transit API, Smart IoT, and Bank card feeds with multi-source reconciliation.',
+                  'Simulated Utility API, Public Transit API, Smart IoT, and Bank card feeds. Sample records only; no accounts are connected. Reconciled estimates enter your review queue before confirmation.',
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonalIcon(

@@ -75,12 +75,15 @@ void main() {
       expect(find.text('1420 Active Members'), findsOneWidget);
       expect(find.text('111.0 tonnes'), findsOneWidget);
       expect(find.text('Per-Category Emissions Roll-Up'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('College of the Environment'), 300);
       expect(find.text('College of the Environment'), findsOneWidget);
 
       // Verify download report action
       final downloadBtn = find.text('Download Report (JSON Export)');
+      await tester.scrollUntilVisible(downloadBtn, -300);
       expect(downloadBtn, findsOneWidget);
 
+      await tester.ensureVisible(downloadBtn);
       await tester.tap(downloadBtn);
       await tester.pumpAndSettle();
 
@@ -123,6 +126,7 @@ void main() {
       // Verify state updated
       expect(find.text('350 Active Members'), findsOneWidget);
       expect(find.text('44.0 tonnes'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('Software Engineering'), 300);
       expect(find.text('Software Engineering'), findsOneWidget);
     });
   });
