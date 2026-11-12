@@ -8,6 +8,7 @@ import 'package:verdi/domain/carbon.dart';
 import 'package:verdi/services/multi_source/bank_inference_adapter.dart';
 import 'package:verdi/services/multi_source/ingestion_orchestrator.dart';
 import 'package:verdi/services/multi_source/reconciliation_engine.dart';
+import 'package:verdi/services/multi_source/green_button_adapter.dart';
 import 'package:verdi/services/multi_source/smart_iot_adapter.dart';
 import 'package:verdi/services/multi_source/source_registry.dart';
 import 'package:verdi/services/multi_source/transport_adapter.dart';
@@ -96,8 +97,14 @@ void main() {
   });
 
   group('MultiSourceRegistry', () {
-    test('Initializes with the four canonical adapters and manages registry lifecycle', () {
+    test('Initializes with the real utility adapter by default', () {
       final registry = MultiSourceRegistry();
+      expect(registry.length, 1);
+      expect(registry.getAdapter('utility-green-button'), isA<GreenButtonUtilityAdapter>());
+    });
+
+    test('Initializes with the four canonical adapters and manages registry lifecycle', () {
+      final registry = MultiSourceRegistry.canonical();
       expect(registry.length, 4);
 
       final adapters = registry.listAdapters();
@@ -246,7 +253,7 @@ void main() {
       final prefs = await SharedPreferences.getInstance();
       final autoStore = AutomationStore(prefs);
       final activityStore = ActivityStore(prefs);
-      final registry = MultiSourceRegistry();
+      final registry = MultiSourceRegistry.canonical();
 
       final orchestrator = IngestionOrchestrator(
         registry: registry,

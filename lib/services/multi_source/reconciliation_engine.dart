@@ -37,7 +37,8 @@ class ReconciledSignal {
 /// high-confidence candidates.
 class ReconciliationEngine {
   const ReconciliationEngine({
-    this.distanceToleranceRatio = 0.25, // 25% acceptable discrepancy between sensors/inferences
+    this.distanceToleranceRatio =
+        0.25, // 25% acceptable discrepancy between sensors/inferences
     this.absoluteDistanceToleranceKm = 1.8,
     this.timeToleranceMinutes = 30,
   });
@@ -99,12 +100,35 @@ class ReconciliationEngine {
 
   /// Evaluates whether two candidates represent overlapping activity signals.
   bool _signalsOverlap(ActivityCandidate a, ActivityCandidate b) {
+    // Real energy intervals are additive, including adjacent intervals/meters.
+    // The legacy heuristic cannot prove independent sources measure the same
+    // load. Keep imports intact rather than averaging or dropping consumption.
+    if (a.source == 'utility-green-button' ||
+        b.source == 'utility-green-button') {
+      return false;
+    }
     // 1. Verify domain compatibility
-    final aIsTravel = a.kind == null || a.kind!.category == 'Travel' || a.source.contains('phone') || a.source.contains('transport') || a.source.contains('bank');
-    final bIsTravel = b.kind == null || b.kind!.category == 'Travel' || b.source.contains('phone') || b.source.contains('transport') || b.source.contains('bank');
+    final aIsTravel =
+        a.kind == null ||
+        a.kind!.category == 'Travel' ||
+        a.source.contains('phone') ||
+        a.source.contains('transport') ||
+        a.source.contains('bank');
+    final bIsTravel =
+        b.kind == null ||
+        b.kind!.category == 'Travel' ||
+        b.source.contains('phone') ||
+        b.source.contains('transport') ||
+        b.source.contains('bank');
 
-    final aIsHome = a.kind == ActivityKind.electricity || a.source.contains('utility') || a.source.contains('smart-iot');
-    final bIsHome = b.kind == ActivityKind.electricity || b.source.contains('utility') || b.source.contains('smart-iot');
+    final aIsHome =
+        a.kind == ActivityKind.electricity ||
+        a.source.contains('utility') ||
+        a.source.contains('smart-iot');
+    final bIsHome =
+        b.kind == ActivityKind.electricity ||
+        b.source.contains('utility') ||
+        b.source.contains('smart-iot');
 
     if (aIsTravel != bIsTravel && aIsHome != bIsHome) {
       return false; // Different categories do not reconcile
@@ -145,7 +169,8 @@ class ReconciliationEngine {
     final relDiff = maxQ > 0 ? diff / maxQ : 0.0;
 
     final agreedWithinTolerance =
-        relDiff <= distanceToleranceRatio || diff <= absoluteDistanceToleranceKm;
+        relDiff <= distanceToleranceRatio ||
+        diff <= absoluteDistanceToleranceKm;
 
     // Determine quantity and strategy
     double reconciledQuantity;
@@ -175,7 +200,9 @@ class ReconciliationEngine {
           totalWeight += w;
         }
         reconciledQuantity = totalWeight > 0 ? weightedSum / totalWeight : minQ;
-        reconciledQuantity = double.parse(reconciledQuantity.toStringAsFixed(2));
+        reconciledQuantity = double.parse(
+          reconciledQuantity.toStringAsFixed(2),
+        );
         strategy = ReconciliationStrategy.averagedWithinTolerance;
       }
     } else {
@@ -191,18 +218,27 @@ class ReconciliationEngine {
       final conf = sourceFidelities[c]!;
       unreliability *= (1.0 - conf);
     }
-    final combinedConfidence = math.min(0.99, math.max(highestFidelity + 0.03, 1.0 - unreliability));
+    final combinedConfidence = math.min(
+      0.99,
+      math.max(highestFidelity + 0.03, 1.0 - unreliability),
+    );
     final confidenceImprovement = double.parse(
       (combinedConfidence - highestFidelity).clamp(0.0, 0.5).toStringAsFixed(2),
     );
 
     // Form composite timestamps
-    final earliestStart = cluster.map((c) => c.start).reduce((a, b) => a.isBefore(b) ? a : b);
-    final latestEnd = cluster.map((c) => c.end).reduce((a, b) => a.isAfter(b) ? a : b);
+    final earliestStart = cluster
+        .map((c) => c.start)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final latestEnd = cluster
+        .map((c) => c.end)
+        .reduce((a, b) => a.isAfter(b) ? a : b);
 
     // Form composite description
     final sourceNames = cluster.map((c) => c.source).toSet().toList();
-    final sourceSummary = cluster.map((c) => '${c.source} (${c.quantity.toStringAsFixed(1)})').join(', ');
+    final sourceSummary = cluster
+        .map((c) => '${c.source} (${c.quantity.toStringAsFixed(1)})')
+        .join(', ');
     final note = agreedWithinTolerance
         ? 'Reconciled from ${cluster.length} sources: $sourceSummary. Multi-source agreement within ${(relDiff * 100).toStringAsFixed(1)}%.'
         : 'Reconciled from ${cluster.length} sources with prioritized verified source: $sourceSummary.';

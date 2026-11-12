@@ -11,6 +11,7 @@ import '../data/activity_store.dart';
 import '../data/automation_store.dart';
 import '../domain/automation.dart';
 import '../domain/carbon.dart';
+import '../services/multi_source/green_button_adapter.dart';
 import '../services/multi_source/ingestion_orchestrator.dart';
 import '../services/multi_source/source_registry.dart';
 import '../services/phone_tracking.dart';
@@ -172,7 +173,7 @@ class _AutomationScreenState extends State<AutomationScreen>
     await current?.cancel();
   }
 
-  Future<void> importUtility() async {
+  Future<void> importUtility({bool greenButton = false}) async {
     if (account.text.trim().isEmpty) {
       message('Enter an account nickname first.');
       return;
@@ -181,22 +182,43 @@ class _AutomationScreenState extends State<AutomationScreen>
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['csv'],
+        allowedExtensions: greenButton ? ['xml'] : ['csv'],
         withData: true,
       );
       if (result == null || !mounted) return;
       final file = result.files.single;
       if (file.size > 1000000 || file.bytes == null) {
-        throw const FormatException('Choose a readable CSV smaller than 1 MB.');
+        throw const FormatException(
+          'Choose a readable utility file smaller than 1 MB.',
+        );
       }
-      final candidates = parseUtilityCsv(
-        utf8.decode(file.bytes!),
-        account.text,
-      );
-      final before = pending.length;
-      await enqueue(candidates);
+      final int added;
+      if (greenButton) {
+        final result = await IngestionOrchestrator(
+          registry: MultiSourceRegistry([
+            GreenButtonUtilityAdapter(
+              xml: utf8.decode(file.bytes!),
+              account: account.text,
+            ),
+          ]),
+          automationStore: store,
+          activityStore: widget.activities,
+        ).ingest();
+        final fresh = store.load();
+        if (mounted) {
+          setState(() {
+            pending = fresh.pending;
+            dismissed = fresh.dismissed;
+          });
+        }
+        added = result.queuedCount;
+      } else {
+        final before = pending.length;
+        await enqueue(parseUtilityCsv(utf8.decode(file.bytes!), account.text));
+        added = pending.length - before;
+      }
       message(
-        '${pending.length - before} new readings ready for review. Previously seen records were skipped.',
+        '$added new readings ready for review. Previously seen records were skipped.',
       );
     } catch (error) {
       message(
@@ -395,8 +417,16 @@ class _AutomationScreenState extends State<AutomationScreen>
                   'record_id,date,kwh\nreading-001,2026-01-01,12.5',
                 ),
                 const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: busy || saveFailed
+                      ? null
+                      : () => importUtility(greenButton: true),
+                  icon: const Icon(Icons.electric_meter),
+                  label: const Text('Choose Green Button XML'),
+                ),
+                const SizedBox(height: 12),
                 OutlinedButton.icon(
-                  onPressed: busy || saveFailed ? null : importUtility,
+                  onPressed: busy || saveFailed ? null : () => importUtility(),
                   icon: const Icon(Icons.upload_file),
                   label: const Text('Choose utility CSV'),
                 ),
