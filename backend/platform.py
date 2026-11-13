@@ -24,6 +24,11 @@ FACTORS = {
     'electricity': ((771.5 + .057 * 28 + .008 * 265) * .45359237 / 1000, 'kWh', 'Home'),
 }
 PROVIDERS = {'bank': 'Bank transactions', 'utility': 'Home energy', 'transport': 'Travel receipts', 'iot': 'Smart devices'}
+NATIONAL_VERSION = 'us-epa-2025-v1'
+NORTHWEST_VERSION = 'nwpp-epa-2025-v1'
+NORTHWEST_KG_PER_KWH = (631.7 + .054 * 28 + .008 * 265) * .45359237 / 1000
+REGIONS = {'us': 'US national fallback', 'nwpp': 'WECC Northwest (NWPP)',
+           'redmond': 'Redmond, WA (NWPP)'}
 
 
 class Problem(Exception):
@@ -59,6 +64,8 @@ class Platform:
             CREATE TABLE IF NOT EXISTS pledges(user TEXT,id TEXT,cents INTEGER,PRIMARY KEY(user,id));
             CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,user TEXT,event TEXT,created TEXT DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS cursors(user TEXT PRIMARY KEY,cursor TEXT);
+            CREATE TABLE IF NOT EXISTS pilot_settings(user TEXT PRIMARY KEY,meter_timezone TEXT);
+            CREATE INDEX IF NOT EXISTS evidence_provider_day ON evidence(user,provider,day);
             ''')
             mode = c.execute("SELECT value FROM metadata WHERE key='mode'").fetchone()
             if mode and mode[0] != ('demo' if demo else 'live'):
@@ -99,18 +106,21 @@ class Platform:
             raise Problem('Account not provisioned.', 404)
         return dict(r)
 
-    def ingest(self, uid, provider, records):
-        self.user(uid)
-        if provider not in PROVIDERS or not isinstance(records, list) or len(records) > 1000:
+    def ingest(self, uid, provider, records, *, green_button=False):
+        user = self.user(uid)
+        if not isinstance(provider, str) or provider not in PROVIDERS or not isinstance(records, list) or not 0 < len(records) <= 1000:
             raise Problem('Unknown provider or too many records.')
         prepared = []
         for r in records:
+            if not isinstance(r, dict):
+                raise Problem('Each evidence record must be an object.')
             kind = r.get('kind')
-            if kind not in FACTORS:
+            if not isinstance(kind, str) or kind not in FACTORS:
                 raise Problem('Unsupported factor. Product, flight and waste estimates require reviewed factors before import.')
             if provider == 'bank' or (provider in ['utility', 'iot'] and kind != 'electricity') or (provider == 'transport' and kind == 'electricity'):
                 raise Problem('Physical units must match the data source. Bank spending is not physical evidence.')
-            q = positive(r.get('quantity'))
+            quantity = r.get('quantity')
+            q = 0 if green_button and type(quantity) in (int, float) and quantity == 0 else positive(quantity)
             try:
                 day = date.fromisoformat(r['day'])
             except (ValueError, KeyError, TypeError):
@@ -118,11 +128,14 @@ class Platform:
             if day > date.today():
                 raise Problem('Future activity cannot be confirmed.')
             rid = str(r.get('id', '')).strip()
-            if not rid or len(rid) > 160:
+            if not rid or len(rid) > 160 or (rid.startswith('green-button:') and not green_button):
                 raise Problem('Stable source record ID required.')
             # Submeters remain supporting evidence until an explicit meter boundary model exists.
             status = 'supporting' if provider == 'iot' else 'pending'
-            prepared.append((f'{provider}:{rid}', uid, provider, day.isoformat(), kind, q, str(r.get('description', provider))[:240], status, FACTORS[kind][0], 'us-epa-2025-v1'))
+            regional = kind == 'electricity' and user['region'] in (REGIONS['nwpp'], REGIONS['redmond'])
+            factor = NORTHWEST_KG_PER_KWH if regional else FACTORS[kind][0]
+            version = NORTHWEST_VERSION if regional else NATIONAL_VERSION
+            prepared.append((f'{provider}:{rid}', uid, provider, day.isoformat(), kind, q, str(r.get('description', provider))[:240], status, factor, version))
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             conn = c.execute('SELECT connected FROM connections WHERE user=? AND provider=?', (uid, provider)).fetchone()
@@ -133,18 +146,53 @@ class Platform:
                 old = c.execute('SELECT day,kind,quantity FROM evidence WHERE user=? AND id=?', (uid, row[0])).fetchone()
                 if old and tuple(old) != (row[3], row[4], row[5]):
                     raise Problem('Source record changed. Review the correction before importing.', 409)
+                if provider == 'utility' and not old:
+                    overlaps = c.execute(
+                        "SELECT id FROM evidence WHERE user=? AND provider='utility' AND day=? AND status!='dismissed'",
+                        (uid, row[3])).fetchall()
+                    if any(green_button or item['id'].startswith('utility:green-button:') for item in overlaps):
+                        raise Problem('This day already has utility evidence. Import each day from one file source.', 409)
                 added += c.execute('INSERT OR IGNORE INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?)', row).rowcount
             c.execute('INSERT INTO audit(user,event) VALUES(?,?)', (uid, f'Imported {added} {provider} records'))
         return {'added': added, 'duplicates': len(records) - added}
 
+    def import_green_button(self, uid, document):
+        from green_button import daily_readings
+        if self.demo:
+            raise Problem('Green Button imports require a provisioned pilot account.', 403)
+        if not isinstance(document, str) or len(document.encode('utf-8', errors='replace')) > 5_000_000:
+            raise Problem('Choose a Green Button XML file up to 5 MB.', 400)
+        with self.db() as c:
+            settings = c.execute('SELECT meter_timezone FROM pilot_settings WHERE user=?', (uid,)).fetchone()
+        if not settings or not settings['meter_timezone']:
+            raise Problem('Set a meter time zone with your pilot administrator before importing XML.', 409)
+        try:
+            records, skipped = daily_readings(document, settings['meter_timezone'])
+        except ValueError as e:
+            raise Problem(str(e)) from None
+        result = self.ingest(uid, 'utility', records, green_button=True)
+        return {**result, 'incompleteDays': skipped}
+
     def snapshot(self, uid):
+        from connectors import PlaidConnector
+
         user = self.user(uid)
         with self.db() as c:
-            rows = [dict(r) for r in c.execute('SELECT * FROM evidence WHERE user=? ORDER BY day DESC,id', (uid,))]
+            rows = [dict(r) for r in c.execute(
+                "SELECT * FROM evidence WHERE user=? ORDER BY (status='pending') DESC,day DESC,id", (uid,))]
             connections = [dict(r) for r in c.execute('SELECT provider,connected FROM connections WHERE user=?', (uid,))]
+            settings = c.execute('SELECT meter_timezone FROM pilot_settings WHERE user=?', (uid,)).fetchone()
             ledger = [dict(r) for r in c.execute('SELECT id,points,description FROM ledger WHERE user=?', (uid,))]
             cents = sum(r[0] for r in c.execute('SELECT cents FROM pledges WHERE user=?', (uid,)))
         categories = {}
+        for connection in connections:
+            provider = connection['provider']
+            connection['mode'] = 'demo' if self.demo else {
+                'bank': f"plaid-{os.getenv('PLAID_ENV', 'sandbox')}" if PlaidConnector.configured(uid) else 'unavailable',
+                'utility': 'file-import',
+                'transport': 'manual',
+                'iot': 'supporting',
+            }[provider]
         for r in rows:
             r['kg'] = r['quantity'] * r['factor']
             r['unit'] = FACTORS[r['kind']][1]
@@ -153,9 +201,10 @@ class Platform:
                 category = FACTORS[r['kind']][2]
                 categories[category] = categories.get(category, 0) + r['kg']
         return {'demo': self.demo, 'period': 'October 2026' if self.demo else date.today().strftime('%B %Y'), 'user': user,
+                'meterTimeZone': settings['meter_timezone'] if settings else None,
                 'connections': connections, 'categories': categories, 'activities': rows[:300],
                 'points': sum(r['points'] for r in ledger), 'ledger': ledger, 'pledgedCents': cents,
-                'boundary': 'Operational estimates. National electricity fallback. No product lifecycle claim.',
+                'boundary': f"Operational estimates. Electricity profile: {user['region']}. Each reading retains its original factor.",
                 'rewards': [{'id': 'transit-pass', 'title': 'Transit discount', 'points': 200}, {'id': 'community', 'title': 'Community project contribution', 'points': 100}],
                 'aiAvailable': bool(os.getenv('OLLAMA_MODEL')) and (os.getenv('OLLAMA_HOST', 'https://ollama.com').rstrip('/') != 'https://ollama.com' or bool(os.getenv('OLLAMA_API_KEY')))}
 
@@ -172,6 +221,7 @@ class Platform:
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             sums = []
+            versions = {}
             # Only matched categories with daily measured evidence qualify. No reward for a missing source.
             for period in [prior, month]:
                 y, m = map(int, period.split('-'))
@@ -181,9 +231,15 @@ class Platform:
                     raise Problem('Connected travel and utility evidence required in both periods.')
                 total = 0
                 for provider in ['transport', 'utility']:
-                    rows = c.execute("SELECT day,quantity,factor,version FROM evidence WHERE user=? AND provider=? AND substr(day,1,7)=? AND status='confirmed'", (uid, provider, period)).fetchall()
-                    if any(r['version'] != 'us-epa-2025-v1' for r in rows):
+                    rows = c.execute(
+                        """SELECT day,quantity,factor,version FROM evidence
+                           WHERE user=? AND provider=? AND substr(day,1,7)=? AND status='confirmed'
+                           AND id NOT LIKE 'transport:manual:%'""", (uid, provider, period)).fetchall()
+                    allowed = {NATIONAL_VERSION, NORTHWEST_VERSION} if provider == 'utility' else {NATIONAL_VERSION}
+                    used = {r['version'] for r in rows}
+                    if len(used) > 1 or not used.issubset(allowed) or (provider in versions and used != versions[provider]):
                         raise Problem('Reward periods need matching factor methods.')
+                    versions[provider] = used
                     if len({r['day'] for r in rows}) != days:
                         raise Problem('Incomplete daily evidence. Missing data cannot earn points.')
                     total += sum(r['quantity'] * r['factor'] for r in rows) / days
@@ -205,12 +261,15 @@ class Platform:
             return self.ingest(uid, 'transport', [{'id': 'receipt-oct31', 'day': '2026-10-31', 'kind': 'bus', 'quantity': 18.4, 'description': 'Transit receipt awaiting review'}])
         if action == 'import':
             return self.ingest(uid, body.get('provider'), body.get('records'))
+        if action == 'import-green-button':
+            return self.import_green_button(uid, body.get('xml'))
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
             if action == 'consent':
                 if type(body.get('enabled')) is not bool:
                     raise Problem('Choose enabled true or false.')
                 c.execute('UPDATE users SET consent=? WHERE id=?', (int(body['enabled']), uid))
+                action = 'sharing enabled' if body['enabled'] else 'sharing disabled'
             elif action == 'connection':
                 p, enabled = body.get('provider'), body.get('enabled')
                 if p not in PROVIDERS or type(enabled) is not bool:
@@ -220,6 +279,7 @@ class Platform:
                     if not PlaidConnector.configured(uid):
                         raise Problem('Consented Plaid account not provisioned. Provider authorization is required.', 503)
                 c.execute('INSERT OR REPLACE INTO connections VALUES(?,?,?)', (uid, p, int(enabled)))
+                action = f'{p} import enabled' if enabled else f'{p} import disabled'
             elif action == 'review':
                 status = body.get('status')
                 if status not in ['confirmed', 'dismissed']:
@@ -336,6 +396,8 @@ class Platform:
 
 def handler(platform, sessions, static=None):
     class Handler(BaseHTTPRequestHandler):
+        timeout = 40
+
         def log_message(self, *_):
             pass  # Never log credentials or request bodies.
 
@@ -358,6 +420,15 @@ def handler(platform, sessions, static=None):
             self.reply(200, {})
 
         def do_GET(self):
+            if self.path == '/api/health':
+                try:
+                    with platform.db() as c:
+                        c.execute("SELECT value FROM metadata WHERE key='mode'").fetchone()
+                except sqlite3.Error:
+                    self.reply(503, {'status': 'unavailable'})
+                else:
+                    self.reply(200, {'status': 'ok'})
+                return
             if static and not self.path.startswith('/api/'):
                 import mimetypes
                 file = (Path(static) / self.path.split('?')[0].lstrip('/')).resolve()
@@ -380,15 +451,17 @@ def handler(platform, sessions, static=None):
 
         def route(self):
             try:
-                token = self.headers.get('Authorization', '').removeprefix('Bearer ')
-                session = next((v for k, v in sessions.items() if hmac.compare_digest(k, token)), None)
+                authorization = self.headers.get('Authorization', '')
+                token = authorization[7:].encode() if authorization.startswith('Bearer ') else b''
+                session = next((v for k, v in sessions.items() if token and hmac.compare_digest(k.encode(), token)), None)
                 if not session:
                     raise Problem('Sign in required.', 401)
                 uid = session['user']
                 body = {}
                 if self.command == 'POST':
                     length = int(self.headers.get('Content-Length', '0'))
-                    if length < 0 or length > 1000000:
+                    limit = 6_000_000 if self.path == '/api/import-green-button' else 1_000_000
+                    if length < 0 or length > limit:
                         raise Problem('Request too large.', 413)
                     body = json.loads(self.rfile.read(length) or b'{}')
                     if not isinstance(body, dict):

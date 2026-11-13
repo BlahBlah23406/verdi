@@ -44,11 +44,15 @@ flutter run -t lib/main.dart --dart-define=VERDI_API=http://127.0.0.1:8787
 
 The administrator finds the newly issued bearer session in the private config and gives it to the intended pilot user. Enter it at sign-in. Sessions stay in memory in the app. Provision an analyst with `--role analyst` in the same organization. Restart the server after provisioning. This is simple administrator-provisioned pilot authentication, not consumer account signup, OIDC, credential recovery, or a production authorization service.
 
-Enable Home energy, then import a CSV with `record_id,date,kwh`. Imports enter review before confirmation. Travel imports also have a normalized backend endpoint. IoT submeter readings are supporting evidence and do not add to whole-home totals; their capture and meter-boundary flows still need product integration. The earlier native phone/GPS screen remains in the legacy entry point and is not automatically uploaded to the new backend.
+Enable Home energy, then import a CSV with `record_id,date,kwh`. For Green Button XML, provision the account with `--meter-timezone` using the meter's IANA time zone. For a Redmond meter, `--region redmond` selects Pacific time and the Northwest grid factor. For Washington meters outside Redmond, verify the provider and ZIP with [EPA Power Profiler](https://www.epa.gov/egrid/power-profiler) before choosing `--region nwpp`; the default is the national fallback.
+
+In myPSE, open **My usage → Green Button**, choose a date range for one electric meter and export XML. Under **Connections**, enable **Home energy** and choose **Green Button XML**. Complete local days enter review. Replays skip duplicates, and the server rejects overlap with active CSV evidence for the same day. Use one whole-home electricity meter per pilot account. Choose a shorter export period if the file exceeds 5 MB. [PSE export instructions](https://www.pse.com/en/account-and-billing/time-of-use/tou-faq)
+
+Enable **Travel receipts** and use **Log a trip** with your mode and distance. Self-reported trips enter review and contribute to activity estimates after confirmation. They cannot satisfy reward coverage. IoT submeter readings remain supporting evidence. Native phone/GPS upload and provider transit feeds are outside this pilot.
 
 ## Algorithms and accounting
 
-- Core operational travel and electricity estimates use pinned EPA 2025 factors with saved factor versions. The server deliberately uses a labeled national electricity fallback throughout the US. It does not apply the earlier unreviewed regional mappings.
+- Core operational travel and electricity estimates use pinned EPA 2025 factors with saved factor versions. Electricity uses the labeled national fallback or EPA eGRID NWPP for a provisioned Northwest meter.
 - Stable provider record IDs prevent replay from creating duplicate entries. Conflicting corrections fail atomically for review. Confirmed, pending and dismissed states persist.
 - Reconciliation no longer merges same-source records, unrelated travel categories, or nested electricity meters. IDs use stable canonical encodings. Correlated sources do not artificially inflate confidence. Scores remain heuristics, not calibrated probabilities.
 - A bank payment cannot establish a journey's mode, physical quantity or travel date. No mileage inference from fare, flight-ticket or fuel spend remains.
@@ -63,7 +67,7 @@ The backend implements Plaid `/transactions/sync` for a **previously authorized*
 
 The consumer Plaid Link/OAuth flow, multi-item encrypted token vault, webhooks and account revocation at the provider still need integration. Disconnect currently stops Verdi imports but does not revoke provider tokens. No Plaid credentials or live account were supplied, so this adapter has protocol tests, not a credentialed live validation.
 
-Live utility data works through normalized CSV imports and review. Utility OAuth, smart-device authorization and transit-provider API agreements remain external dependencies. Demo connection fixtures are synthetic and clearly labeled.
+Utility data enters through normalized CSV or supported Green Button XML exports. Plaid is the only provider sync in the live app. Utility OAuth, smart-device authorization and transit-provider API agreements are pending. Demo connection fixtures are synthetic and labeled in the app.
 
 ## Ollama Cloud coach
 

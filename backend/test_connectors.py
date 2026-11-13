@@ -34,5 +34,23 @@ class ConnectorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PlaidConnector(lambda *_:{'error_code':'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION'}).fetch()
 
+    def test_mutated_pagination_restarts_without_discarded_rows(self):
+        calls = []
+        pages = iter([
+            {'added': [{'transaction_id': 'discard', 'amount': 5, 'date': '2026-10-01',
+                        'iso_currency_code': 'USD'}], 'next_cursor': 'intermediate', 'has_more': True},
+            {'error_code': 'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION'},
+            {'next_cursor': 'saved', 'has_more': False},
+        ])
+
+        def transport(_, body):
+            calls.append(body['cursor'])
+            return next(pages)
+
+        self.assertEqual(PlaidConnector(transport).fetch('initial'), {
+            'transactions': [], 'removed': [], 'cursor': 'saved',
+        })
+        self.assertEqual(calls, ['initial', 'intermediate', 'initial'])
+
 
 if __name__=='__main__': unittest.main()

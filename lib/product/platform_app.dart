@@ -1,6 +1,7 @@
 // Shared responsive Flutter UI for consumer rewards and institution analytics.
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -20,12 +21,15 @@ const lime = Color(0xFFD6EC92);
 class PlatformApi {
   PlatformApi(this.token, {http.Client? client, String? base})
     : client = client ?? http.Client(),
-      base =
-          base ??
-          const String.fromEnvironment(
-            'VERDI_API',
-            defaultValue: 'http://127.0.0.1:8787',
-          );
+      base = (base ?? _defaultBase()).replaceFirst(RegExp(r'/+$'), '');
+
+  static String _defaultBase() {
+    const configured = String.fromEnvironment('VERDI_API');
+    if (configured.isNotEmpty) return configured;
+    if (kIsWeb && Uri.base.scheme == 'https') return Uri.base.origin;
+    return 'http://127.0.0.1:8787';
+  }
+
   final String token, base;
   final http.Client client;
   Future<Map<String, dynamic>> request(
@@ -42,11 +46,21 @@ class PlatformApi {
                 ? client.get(uri, headers: headers)
                 : client.post(uri, headers: headers, body: jsonEncode(body)))
             .timeout(const Duration(seconds: 35));
-    final result = Map<String, dynamic>.from(jsonDecode(response.body) as Map);
-    if (response.statusCode >= 400) {
-      throw StateError(result['error'] as String? ?? 'Request failed.');
+    final Object? payload;
+    try {
+      payload = jsonDecode(response.body);
+    } on FormatException {
+      throw StateError(
+        'The API returned an unexpected response (HTTP ${response.statusCode}).',
+      );
     }
-    return result;
+    if (payload is! Map<String, dynamic>) {
+      throw StateError('The API returned an unexpected response.');
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError(payload['error'] as String? ?? 'Request failed.');
+    }
+    return payload;
   }
 
   void dispose() => client.close();
@@ -166,11 +180,15 @@ class _PlatformHomeState extends State<PlatformHome> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              action == 'sync'
-                  ? '${response['added']} new records, ${response['duplicates']} duplicates skipped'
-                  : 'Saved${widget.demo ? ' to the synthetic demo' : ''}',
-            ),
+            content: Text(switch (action) {
+              'sync' when !widget.demo =>
+                '${response['added']} bank records updated, ${response['removed']} removed',
+              'sync' || 'import' =>
+                '${response['added']} new records, ${response['duplicates']} duplicates skipped',
+              'import-green-button' =>
+                '${response['added']} days ready for review, ${response['duplicates']} duplicates, ${response['incompleteDays']} incomplete days skipped',
+              _ => 'Saved${widget.demo ? ' to the synthetic demo' : ''}',
+            }),
           ),
         );
         await refresh();
@@ -480,9 +498,7 @@ class _PlatformHomeState extends State<PlatformHome> {
       ),
       title('Review new evidence (${pending.length})'),
       if (pending.isEmpty)
-        const Text(
-          'You’re up to date. Sync a connection to check for new records.',
-        ),
+        const Text('You’re up to date. New imports will appear here.'),
       ...pending.map(
         (r) => box(
           Column(
@@ -550,80 +566,242 @@ class _PlatformHomeState extends State<PlatformHome> {
     ];
   }
 
-  List<Widget> connections() => [
-    title('Your connected world'),
-    const Text(
-      'You control each connection. Disconnecting stops new imports and keeps your confirmed history.',
-    ),
-    const SizedBox(height: 18),
-    ...(data!['connections'] as List).map(
-      (e) => box(
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          title: Text(
-            {
-              'bank': 'Bank transactions',
-              'utility': 'Home energy',
-              'transport': 'Travel receipts',
-              'iot': 'Smart devices',
-            }[e['provider']]!,
+  Future<void> importElectricity({required bool xml}) async {
+    try {
+      final picked = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: [xml ? 'xml' : 'csv'],
+        withData: true,
+      );
+      if (picked == null || !mounted) return;
+      final bytes = picked.files.single.bytes;
+      if (bytes == null) {
+        throw const FormatException('Could not read that file.');
+      }
+      if (bytes.length > (xml ? 5000000 : 1000000)) {
+        throw FormatException('Choose a file smaller than ${xml ? 5 : 1} MB.');
+      }
+      final input = utf8.decode(bytes);
+      if (xml) {
+        await act('import-green-button', {'xml': input});
+        return;
+      }
+      final candidates = parseUtilityCsv(
+        input,
+        (data!['user'] as Map)['id'] as String,
+      );
+      await act('import', {
+        'provider': 'utility',
+        'records': candidates
+            .map(
+              (c) => {
+                'id': c.id,
+                'day': c.start.toIso8601String().substring(0, 10),
+                'kind': 'electricity',
+                'quantity': c.quantity,
+                'description': 'Imported utility reading',
+              },
+            )
+            .toList(),
+      });
+    } catch (e) {
+      if (mounted) setState(() => error = e.toString());
+    }
+  }
+
+  Future<void> logTrip() async {
+    var mode = 'car';
+    final now = DateTime.now();
+    var day = now;
+    var distance = '';
+    final form = GlobalKey<FormState>();
+    final record = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Log a trip'),
+          content: Form(
+            key: form,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: mode,
+                    decoration: const InputDecoration(labelText: 'Travel mode'),
+                    items: const [
+                      DropdownMenuItem(value: 'car', child: Text('Car')),
+                      DropdownMenuItem(value: 'bus', child: Text('Bus')),
+                      DropdownMenuItem(value: 'train', child: Text('Rail')),
+                      DropdownMenuItem(
+                        value: 'bicycle',
+                        child: Text('Bicycle'),
+                      ),
+                    ],
+                    onChanged: (value) => mode = value!,
+                  ),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final picked = await showDatePicker(
+                        context: context,
+                        initialDate: day,
+                        firstDate: DateTime(2000),
+                        lastDate: now,
+                      );
+                      if (picked != null && context.mounted) {
+                        setDialogState(() => day = picked);
+                      }
+                    },
+                    icon: const Icon(Icons.calendar_today),
+                    label: Text(
+                      MaterialLocalizations.of(context).formatMediumDate(day),
+                    ),
+                  ),
+                  TextFormField(
+                    decoration: const InputDecoration(
+                      labelText: 'Distance (miles)',
+                    ),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    onChanged: (value) => distance = value,
+                    validator: (value) {
+                      final miles = double.tryParse(value ?? '');
+                      return miles == null ||
+                              !miles.isFinite ||
+                              miles <= 0 ||
+                              miles > 1000
+                          ? 'Enter a distance from 0 to 1,000 miles.'
+                          : null;
+                    },
+                  ),
+                ],
+              ),
+            ),
           ),
-          subtitle: Text(
-            widget.demo
-                ? 'Fictional provider · SQLite demo records'
-                : 'Authorized import connection',
-          ),
-          value: e['connected'] == 1,
-          onChanged: busy
-              ? null
-              : (v) => act('connection', {
-                  'provider': e['provider'],
-                  'enabled': v,
-                }),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (!form.currentState!.validate()) return;
+                Navigator.pop(context, {
+                  'id': 'manual:${now.microsecondsSinceEpoch}',
+                  'day': day.toIso8601String().substring(0, 10),
+                  'kind': mode,
+                  'quantity': double.parse(distance) * 1.609344,
+                  'description': 'Self-reported $mode trip',
+                });
+              },
+              child: const Text('Send to review'),
+            ),
+          ],
         ),
       ),
-    ),
-    button('Sync connected sources', () => act('sync', {}), icon: Icons.sync),
-    title('Import your electricity readings'),
-    const Text(
-      'Use your utility export with columns record_id, date and kwh. Review the readings before they enter your footprint.',
-    ),
-    const SizedBox(height: 16),
-    button('Choose electricity CSV', () async {
-      try {
-        final picked = await FilePicker.platform.pickFiles(
-          type: FileType.custom,
-          allowedExtensions: ['csv'],
-          withData: true,
-        );
-        if (picked == null || !mounted) return;
-        final bytes = picked.files.single.bytes;
-        if (bytes == null) {
-          throw const FormatException('Could not read that file.');
-        }
-        final candidates = parseUtilityCsv(
-          utf8.decode(bytes),
-          (data!['user'] as Map)['id'] as String,
-        );
-        await act('import', {
-          'provider': 'utility',
-          'records': candidates
-              .map(
-                (c) => {
-                  'id': c.id,
-                  'day': c.start.toIso8601String().substring(0, 10),
-                  'kind': 'electricity',
-                  'quantity': c.quantity,
-                  'description': 'Imported utility reading',
-                },
-              )
-              .toList(),
-        });
-      } catch (e) {
-        if (mounted) setState(() => error = e.toString());
-      }
-    }, icon: Icons.upload_file),
-  ];
+    );
+    if (record != null && mounted) {
+      await act('import', {
+        'provider': 'transport',
+        'records': [record],
+      });
+    }
+  }
+
+  List<Widget> connections() {
+    final sources = (data!['connections'] as List).cast<Map>();
+    final bankEnabled = sources.any(
+      (s) =>
+          s['provider'] == 'bank' &&
+          s['connected'] == 1 &&
+          s['mode'] != 'unavailable',
+    );
+    final utilityEnabled = sources.any(
+      (s) => s['provider'] == 'utility' && s['connected'] == 1,
+    );
+    final travelEnabled = sources.any(
+      (s) => s['provider'] == 'transport' && s['connected'] == 1,
+    );
+    final meterTimeZone = data!['meterTimeZone'];
+    return [
+      title('Your connected world'),
+      const Text(
+        'You control each connection. Disconnecting stops new imports and keeps your confirmed history.',
+      ),
+      const SizedBox(height: 18),
+      ...sources.map(
+        (e) => box(
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: Text(
+              {
+                'bank': 'Bank transactions',
+                'utility': 'Home energy',
+                'transport': 'Travel receipts',
+                'iot': 'Smart devices',
+              }[e['provider']]!,
+            ),
+            subtitle: Text(
+              widget.demo
+                  ? 'Fictional provider · SQLite demo records'
+                  : switch (e['mode']) {
+                      'plaid-production' => 'Plaid · authorized pilot account',
+                      'plaid-sandbox' => 'Plaid Sandbox · test transactions',
+                      'file-import' => 'Upload a utility export',
+                      'manual' =>
+                        'Log trips using your travel mode and distance',
+                      'supporting' => 'Device readings through the pilot API',
+                      _ => 'Requires a Plaid account provisioned by the pilot administrator',
+                    },
+            ),
+            value: e['connected'] == 1,
+            onChanged:
+                busy || (e['mode'] == 'unavailable' && e['connected'] != 1)
+                ? null
+                : (v) => act('connection', {
+                    'provider': e['provider'],
+                    'enabled': v,
+                  }),
+          ),
+        ),
+      ),
+      if (widget.demo || bankEnabled)
+        button(
+          widget.demo ? 'Sync connected sources' : 'Sync bank transactions',
+          () => act('sync', {}),
+          icon: Icons.sync,
+        ),
+      if (!widget.demo && travelEnabled)
+        button('Log a trip', logTrip, icon: Icons.directions_transit),
+      title('Import your electricity readings'),
+      const Text(
+        'Use a CSV with record_id, date and kwh. Review the readings before they enter your footprint.',
+      ),
+      const SizedBox(height: 16),
+      if (utilityEnabled)
+        button(
+          'Choose electricity CSV',
+          () => importElectricity(xml: false),
+          icon: Icons.upload_file,
+        )
+      else
+        const Text('Enable Home energy to upload readings.'),
+      if (!widget.demo && meterTimeZone != null) ...[
+        const SizedBox(height: 16),
+        const Text(
+          'For Puget Sound Energy, open My usage → Green Button, choose a range of days, and export XML for one electric meter. Verdi imports complete days only.',
+        ),
+        Text('Meter time zone · $meterTimeZone'),
+        if (utilityEnabled)
+          button(
+            'Choose Green Button XML',
+            () => importElectricity(xml: true),
+            icon: Icons.upload_file,
+          ),
+      ],
+    ];
+  }
 
   List<Widget> rewards() => [
     title('Lower impact. Tangible benefits.'),
@@ -747,14 +925,44 @@ class _PlatformHomeState extends State<PlatformHome> {
     final members = data!['consentingParticipants'] as int;
 
     if (institutionTab == 1) {
+      if (!widget.demo) {
+        return [
+          title('Carbon Map'),
+          const Text(
+            'Route and location reporting requires consented route data. The pilot currently reports emissions by activity type.',
+          ),
+        ];
+      }
       return [
         InstitutionMapView(
-          organizationName: '${(data!['organization'] as String?)?.toUpperCase() ?? 'CASCADIA'} UNIVERSITY',
+          organizationName:
+              '${(data!['organization'] as String?)?.toUpperCase() ?? 'CASCADIA'} UNIVERSITY',
         ),
       ];
     }
 
     if (institutionTab == 2) {
+      if (!widget.demo) {
+        final sources = [...current]
+          ..sort((a, b) => (b['kg'] as num).compareTo(a['kg'] as num));
+        return [
+          title('Reported emissions by activity'),
+          if (sources.isEmpty)
+            const Text(
+              'Activity totals appear when the reporting cohort is large enough.',
+            ),
+          for (final source in sources)
+            ListTile(
+              title: Text(source['kind'] as String),
+              subtitle: LinearProgressIndicator(
+                value: total > 0 ? (source['kg'] as num).toDouble() / total : 0,
+              ),
+              trailing: Text(
+                '${(source['kg'] as num).toStringAsFixed(1)} kg CO₂e',
+              ),
+            ),
+        ];
+      }
       return [
         FactorAnalysisView(
           totalBaselineTonnes: (total / 1000.0) > 0 ? (total / 1000.0) : 263.7,
@@ -809,13 +1017,21 @@ class _PlatformHomeState extends State<PlatformHome> {
                           color: forest.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.map_outlined, color: forest, size: 22),
+                        child: const Icon(
+                          Icons.map_outlined,
+                          color: forest,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
                           'Carbon Map & Corridors',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: ink,
+                          ),
                         ),
                       ),
                     ],
@@ -846,23 +1062,34 @@ class _PlatformHomeState extends State<PlatformHome> {
                       Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFD34528).withValues(alpha: 0.12),
+                          color: const Color(0xFFD34528)
+                              .withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.insights_outlined, color: Color(0xFFD34528), size: 22),
+                        child: const Icon(
+                          Icons.insights_outlined,
+                          color: Color(0xFFD34528),
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
                           'Factor Sensitivity & Drivers',
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: ink),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: ink,
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 10),
-                  const Text(
-                    'Analyze mode choice, distance, and grid determinants with an interactive policy simulator.',
+                  Text(
+                    widget.demo
+                        ? 'Analyze mode choice, distance, and grid determinants with an interactive policy simulator.'
+                        : 'Compare reported emissions by activity type for the selected period.',
                     style: TextStyle(fontSize: 13, color: Colors.black87),
                   ),
                   const SizedBox(height: 14),

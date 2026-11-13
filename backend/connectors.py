@@ -7,7 +7,12 @@ from decimal import Decimal, InvalidOperation
 from datetime import date
 import json
 import os
+import urllib.error
 import urllib.request
+
+
+class PaginationChanged(ValueError):
+    pass
 
 
 class PlaidConnector:
@@ -16,7 +21,9 @@ class PlaidConnector:
 
     @staticmethod
     def configured(uid):
-        return uid == os.getenv('PLAID_USER') and all(os.getenv(k) for k in ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ACCESS_TOKEN'])
+        return (os.getenv('PLAID_ENV', 'sandbox') in ('sandbox', 'production')
+                and uid == os.getenv('PLAID_USER')
+                and all(os.getenv(k) for k in ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ACCESS_TOKEN']))
 
     def _post(self, path, body):
         environment = os.getenv('PLAID_ENV', 'sandbox')
@@ -24,14 +31,30 @@ class PlaidConnector:
             raise ValueError('Use sandbox or production Plaid environment.')
         payload = {**body, 'client_id': os.environ['PLAID_CLIENT_ID'], 'secret': os.environ['PLAID_SECRET'], 'access_token': os.environ['PLAID_ACCESS_TOKEN']}
         req = urllib.request.Request(f'https://{environment}.plaid.com{path}', data=json.dumps(payload).encode(), headers={'Content-Type': 'application/json', 'Plaid-Version': '2020-09-14'})
-        with urllib.request.urlopen(req, timeout=20) as response:
-            return json.loads(response.read(2000000))
+        try:
+            with urllib.request.urlopen(req, timeout=20) as response:
+                return json.loads(response.read(2000000))
+        except urllib.error.HTTPError as error:
+            with error:
+                failure = json.loads(error.read(65536))
+            if not isinstance(failure, dict) or not failure.get('error_code'):
+                raise ValueError('Plaid returned an unexpected error response.') from None
+            return failure
 
     def fetch(self, cursor=''):
+        try:
+            return self._fetch_pages(cursor)
+        except PaginationChanged:
+            # Plaid requires retrying the complete update from the original cursor.
+            return self._fetch_pages(cursor)
+
+    def _fetch_pages(self, cursor):
         added, removed = {}, set()
         # Apply only after all pages succeed. A caller retains the old cursor on error.
         for _ in range(100):
             payload = self.transport('/transactions/sync', {'cursor': cursor, 'count': 500})
+            if payload.get('error_code') == 'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION':
+                raise PaginationChanged('Plaid changed transactions during pagination.')
             if payload.get('error_code'):
                 raise ValueError('Provider sync failed; retry from the saved cursor.')
             for row in payload.get('added', []) + payload.get('modified', []):
