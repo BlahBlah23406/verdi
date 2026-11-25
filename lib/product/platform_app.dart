@@ -79,8 +79,13 @@ class PlatformRequestError extends StateError {
 }
 
 class PlatformApp extends StatelessWidget {
-  const PlatformApp({super.key, this.demo = false, this.institutional = false});
-  final bool demo, institutional;
+  const PlatformApp({
+    super.key,
+    this.demo = false,
+    this.institutional = false,
+    this.redmondDemo = false,
+  });
+  final bool demo, institutional, redmondDemo;
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: institutional ? 'Verdi for institutions' : 'Verdi',
@@ -98,7 +103,11 @@ class PlatformApp extends StatelessWidget {
         border: OutlineInputBorder(),
       ),
     ),
-    home: PlatformHome(demo: demo, institutional: institutional),
+    home: PlatformHome(
+      demo: demo,
+      institutional: institutional,
+      redmondDemo: redmondDemo,
+    ),
   );
 }
 
@@ -107,8 +116,9 @@ class PlatformHome extends StatefulWidget {
     super.key,
     required this.demo,
     required this.institutional,
+    this.redmondDemo = false,
   });
-  final bool demo, institutional;
+  final bool demo, institutional, redmondDemo;
   @override
   State<PlatformHome> createState() => _PlatformHomeState();
 }
@@ -129,6 +139,8 @@ class _PlatformHomeState extends State<PlatformHome> {
   );
   PilotPhoneCapture? phone;
   bool phoneBusy = false;
+  Timer? demoPoll;
+  bool demoReading = false;
 
   bool get nativeConsumer =>
       !widget.demo &&
@@ -208,9 +220,20 @@ class _PlatformHomeState extends State<PlatformHome> {
     super.initState();
     if (widget.demo) {
       api = PlatformApi(
-        widget.institutional ? 'verdi-demo-analyst' : 'verdi-demo-consumer',
+        widget.redmondDemo
+            ? 'verdi-redmond-demo'
+            : (widget.institutional
+                  ? 'verdi-demo-analyst'
+                  : 'verdi-demo-consumer'),
+        base: widget.redmondDemo && kIsWeb ? Uri.base.origin : null,
       );
       refresh();
+      if (widget.redmondDemo) {
+        demoPoll = Timer.periodic(
+          const Duration(seconds: 2),
+          (_) => pollDemo(),
+        );
+      }
     } else if (nativeConsumer) {
       unawaited(restoreSession());
     }
@@ -218,10 +241,27 @@ class _PlatformHomeState extends State<PlatformHome> {
 
   @override
   void dispose() {
+    demoPoll?.cancel();
     phone?.dispose();
     api?.dispose();
     tokenController.dispose();
     super.dispose();
+  }
+
+  Future<void> pollDemo() async {
+    if (busy || demoReading || data == null) return;
+    final before = data;
+    demoReading = true;
+    try {
+      final latest = await api!.request('me');
+      if (mounted && !busy && identical(before, data)) {
+        setState(() => data = latest);
+      }
+    } catch (_) {
+      // Keep the last fetched state available. Refresh can surface connection errors.
+    } finally {
+      demoReading = false;
+    }
   }
 
   Future<void> refresh({bool remember = false}) async {
@@ -424,9 +464,11 @@ class _PlatformHomeState extends State<PlatformHome> {
             width: double.infinity,
             color: lime,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-            child: const Text(
-              'SYNTHETIC DEMO  ·  Fictional accounts and providers. Rewards and contributions are simulations.',
-              style: TextStyle(color: ink),
+            child: Text(
+              widget.redmondDemo
+                  ? 'REDMOND DEMO · Fictional household and simulated provider data'
+                  : 'SYNTHETIC DEMO · Fictional accounts and providers. Rewards and contributions are simulations.',
+              style: const TextStyle(color: ink),
             ),
           ),
         if (busy) const LinearProgressIndicator(minHeight: 2),
@@ -498,23 +540,25 @@ class _PlatformHomeState extends State<PlatformHome> {
                       label: 'Factor Analysis',
                     ),
                   ]
-                : const [
-                    NavigationDestination(
+                : [
+                    const NavigationDestination(
                       icon: Icon(Icons.space_dashboard_outlined),
                       label: 'Today',
                     ),
-                    NavigationDestination(
+                    const NavigationDestination(
                       icon: Icon(Icons.hub_outlined),
                       label: 'Connections',
                     ),
-                    NavigationDestination(
-                      icon: Icon(Icons.redeem_outlined),
-                      label: 'Rewards',
-                    ),
-                    NavigationDestination(
-                      icon: Icon(Icons.manage_accounts_outlined),
-                      label: 'Your data',
-                    ),
+                    if (!widget.redmondDemo)
+                      const NavigationDestination(
+                        icon: Icon(Icons.redeem_outlined),
+                        label: 'Rewards',
+                      ),
+                    if (!widget.redmondDemo)
+                      const NavigationDestination(
+                        icon: Icon(Icons.manage_accounts_outlined),
+                        label: 'Your data',
+                      ),
                   ],
           )
         : null,
@@ -547,6 +591,7 @@ class _PlatformHomeState extends State<PlatformHome> {
   ];
 
   List<Widget> consumer() {
+    if (widget.redmondDemo) return redmondHousehold();
     switch (tab) {
       case 1:
         return connections();
@@ -995,6 +1040,130 @@ class _PlatformHomeState extends State<PlatformHome> {
         'records': [record],
       });
     }
+  }
+
+  List<Widget> redmondHousehold() {
+    final sources = (data!['demoSources'] as List? ?? const []).cast<Map>();
+    if (tab == 0) {
+      final active = sources.where((source) => source['status'] == 'ok').length;
+      return [
+        title('Cedar Household'),
+        const Text('A fictional household in Redmond, Washington.'),
+        const SizedBox(height: 16),
+        box(Text('$active of ${sources.length} sources syncing automatically')),
+        const SizedBox(height: 16),
+        button(
+          'Set up your sources',
+          () => setState(() => tab = 1),
+          icon: Icons.hub_outlined,
+        ),
+      ];
+    }
+    return [
+      title('Cedar Household connections'),
+      const Text(
+        'Authorize each simulated source once. The server keeps collecting while this page is closed.',
+      ),
+      const SizedBox(height: 12),
+      for (final source in sources) redmondSource(source),
+    ];
+  }
+
+  Widget redmondSource(Map source) {
+    final id = source['id'] as String;
+    final name = switch (id) {
+      'utility' => 'PSE electricity and gas',
+      'orca' => 'ORCA transit activity',
+      'bank' => 'Bank transactions',
+      _ => id,
+    };
+    final permission = switch (id) {
+      'utility' => 'Daily electricity use and natural gas statements',
+      'orca' => 'Card tap time, location, agency and fare',
+      _ => 'Transaction dates, amounts and pending or posted status',
+    };
+    final status = source['status'];
+    final lastSynced = source['lastSyncedAt'];
+    final records = (source['records'] as List? ?? const []).cast<Map>();
+    return box(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 6),
+          Text(switch (status) {
+            'ok' => 'Syncing automatically',
+            'waiting' => 'Authorized · waiting for first sync',
+            'auth_required' => 'Authorization expired · reconnect to continue',
+            _ => 'Ready to authorize',
+          }),
+          if (lastSynced is String) Text('Last simulated sync · $lastSynced'),
+          const SizedBox(height: 12),
+          for (final record in records.take(3))
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(record['label'] as String),
+              subtitle: Text(record['detail'] as String),
+            ),
+          Wrap(
+            spacing: 10,
+            runSpacing: 6,
+            children: [
+              if (status == 'disconnected' || status == 'auth_required')
+                button(
+                  status == 'auth_required'
+                      ? 'Reconnect $name'
+                      : 'Connect $name',
+                  () => authorizeDemoSource(id, name, permission),
+                  icon: Icons.link,
+                ),
+              if (status == 'ok' || status == 'waiting')
+                OutlinedButton(
+                  onPressed: busy
+                      ? null
+                      : () => act('demo-expire', {'source': id}),
+                  child: Text('Simulate expired access · $name'),
+                ),
+              if (status != 'disconnected')
+                TextButton(
+                  onPressed: busy
+                      ? null
+                      : () => act('demo-disconnect', {'source': id}),
+                  child: Text('Disconnect $name'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> authorizeDemoSource(
+    String id,
+    String name,
+    String permission,
+  ) async {
+    final allowed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Authorize $name'),
+        content: Text(
+          '$permission. This demo uses fictional records and never asks for a password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Allow demo access'),
+          ),
+        ],
+      ),
+    );
+    if (allowed == true && mounted) await act('demo-authorize', {'source': id});
   }
 
   List<Widget> connections() {

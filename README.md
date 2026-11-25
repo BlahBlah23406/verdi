@@ -10,11 +10,24 @@ This is a **local pilot implementation**, continued from agent-comms `capsule-91
 | --- | --- | --- |
 | Consumer pilot | `lib/main.dart` | Empty live database, administrator-issued session |
 | Institution pilot | `lib/main_institution.dart` | Same live database, organization-scoped analyst session |
+| Redmond connection demo | `lib/main_redmond_demo.dart` | Cedar Household, simulated automatic provider updates |
 | Consumer investor demo | `lib/main_demo.dart` | Prefilled synthetic accounts in a separate SQLite database |
 | Institution investor demo | `lib/main_demo_institution.dart` | Synthetic program reports from the same demo database |
 | Earlier prototype | `lib/main_legacy.dart` | Original device-local tracking and trip review, retained for field validation |
 
 Flutter source targets Android, iOS and web. Web release builds and tests are verified. See [current validation](docs/VALIDATION_V3.md) for native build results and limits.
+
+## Run the Redmond connection demo
+
+From this directory, run `./tool/run_redmond_demo.sh` and open [Cedar Household](http://127.0.0.1:8788/). Flutter and Python 3 are required. The browser opens the fictional household automatically. The server listens on loopback and uses a separate local SQLite database, `verdi-redmond-demo.sqlite`.
+
+1. Open **Set up your sources**. Authorize PSE electricity and gas, ORCA and banking with **Allow demo access**. Each permission screen describes the fields the simulated source shares.
+2. Close the page for 15 seconds with the server running, then reopen it. The server keeps collecting independently of the browser.
+3. Choose **Simulate expired access** on any source. Its history stays visible. Choose **Reconnect** to resume automatically, or **Disconnect** to stop collection.
+
+Each collection cycle takes about 10 seconds. Each source advances through a simulated calendar. Electricity arrives as daily totals and gas arrives on monthly statements, with one prior statement available at first sync. Restarting the server keeps the household and its consent history. For a clean second household run, set `VERDI_DEMO_DB` to an unused SQLite path and `VERDI_DEMO_PORT` to an unused port.
+
+**What the demo validates.** The Plaid simulation runs the production transaction parser against local cursor responses. The utility simulation models separate electricity kWh and natural-gas therms and statement periods. The ORCA simulation uses documented tap fields and real Link 2 Line station names. Tap data never supplies a destination or journey distance. All usage, fares and charges are fictional. Consent, expiration and collection cadence are simulated. The credentialed Plaid Sandbox, Arcadia Sandbox and live provider feeds require separate validation. [Plaid Transactions](https://plaid.com/docs/api/products/transactions/#transactionssync) · [Arcadia Plug Sandbox](https://docs.arcadia.com/docs/sandbox-testing) · [myORCA activity](https://support.myorca.com/hc/en-us/articles/10010238382093-Navigating-myORCA-com) · [Link 2 Line](https://www.soundtransit.org/ride-with-us/routes-schedules/2-line) · [PSE combined bill](https://www.pse.com/en/account-and-billing/my-bill/howtoreadyourbill/Combined-Gas-and-Electric) · [Link fares](https://www.soundtransit.org/ride-with-us/how-to-pay/fares?tab=2)
 
 ## Run the investor demo
 

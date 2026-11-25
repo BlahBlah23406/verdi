@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sqlite3
+import threading
 import time
 import urllib.request
 from datetime import date, timedelta
@@ -53,8 +54,11 @@ def round_up(cents, pending=False, refund=False):
 
 
 class Platform:
-    def __init__(self, path, demo=False):
-        self.path, self.demo = str(path), demo
+    def __init__(self, path, demo=False, *, redmond_interval=None):
+        self.path = str(path)
+        self.demo = demo or redmond_interval is not None
+        self.redmond = None
+        database_mode = 'redmond-demo' if redmond_interval is not None else 'demo' if demo else 'live'
         with self.db() as c:
             c.executescript('''
             CREATE TABLE IF NOT EXISTS metadata(key TEXT PRIMARY KEY,value TEXT);
@@ -71,10 +75,13 @@ class Platform:
             CREATE INDEX IF NOT EXISTS evidence_provider_day ON evidence(user,provider,day);
             ''')
             mode = c.execute("SELECT value FROM metadata WHERE key='mode'").fetchone()
-            if mode and mode[0] != ('demo' if demo else 'live'):
+            if mode and mode[0] != database_mode:
                 raise Problem('Demo and live must use separate database files.')
-            c.execute("INSERT OR IGNORE INTO metadata VALUES('mode',?)", ('demo' if demo else 'live',))
-        if demo:
+            c.execute("INSERT OR IGNORE INTO metadata VALUES('mode',?)", (database_mode,))
+        if redmond_interval is not None:
+            from redmond_demo import RedmondDemo
+            self.redmond = RedmondDemo(self, interval=redmond_interval)
+        elif demo:
             self.seed()
 
     def db(self):
@@ -227,13 +234,16 @@ class Platform:
             if r['status'] == 'confirmed' and r['day'].startswith('2026-10' if self.demo else date.today().strftime('%Y-%m')):
                 category = FACTORS[r['kind']][2]
                 categories[category] = categories.get(category, 0) + r['kg']
-        return {'demo': self.demo, 'period': 'October 2026' if self.demo else date.today().strftime('%B %Y'), 'user': user,
+        result = {'demo': self.demo, 'period': 'October 2026' if self.demo else date.today().strftime('%B %Y'), 'user': user,
                 'meterTimeZone': settings['meter_timezone'] if settings else None,
                 'connections': connections, 'categories': categories, 'activities': rows[:300],
                 'points': sum(r['points'] for r in ledger), 'ledger': ledger, 'pledgedCents': cents,
                 'boundary': f"Operational estimates. Electricity profile: {user['region']}. Each reading retains its original factor.",
                 'rewards': [{'id': 'transit-pass', 'title': 'Transit discount', 'points': 200}, {'id': 'community', 'title': 'Community project contribution', 'points': 100}],
                 'aiAvailable': bool(os.getenv('OLLAMA_MODEL')) and (os.getenv('OLLAMA_HOST', 'https://ollama.com').rstrip('/') != 'https://ollama.com' or bool(os.getenv('OLLAMA_API_KEY')))}
+        if self.redmond:
+            result.update(self.redmond.snapshot(uid), aiAvailable=False)
+        return result
 
     def monthly_reward(self, uid, month):
         self.user(uid)
@@ -278,6 +288,10 @@ class Platform:
         return {'id': rid, 'points': points, 'kgReduced': reduction, 'simulation': self.demo}
 
     def mutate(self, uid, action, body):
+        if self.redmond:
+            if action not in ('demo-authorize', 'demo-disconnect', 'demo-expire'):
+                raise Problem('Action unavailable for the Redmond demo.', 404)
+            return self.redmond.mutate(uid, action, body)
         self.user(uid)
         if action == 'reward':
             return self.monthly_reward(uid, str(body.get('month', '')))
@@ -553,6 +567,8 @@ def handler(platform, sessions, static=None):
                 elif path == '/api/coach' and self.command == 'POST':
                     if session.get('role') != 'consumer':
                         raise Problem('Consumer session required.', 403)
+                    if platform.redmond:
+                        raise Problem('Coach unavailable for the Redmond demo.', 404)
                     result = platform.coach(uid)
                 elif path.startswith('/api/') and self.command == 'POST':
                     if session.get('role') != 'consumer':
@@ -572,30 +588,58 @@ def handler(platform, sessions, static=None):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
-    p.add_argument('--demo', action='store_true')
+    modes = p.add_mutually_exclusive_group()
+    modes.add_argument('--demo', action='store_true')
+    modes.add_argument('--redmond-demo', action='store_true')
+    p.add_argument('--demo-interval', type=int, default=10, help='Seconds per simulated provider sync.')
     p.add_argument('--db')
     p.add_argument('--port', type=int, default=8787)
     p.add_argument('--static')
     p.add_argument('--config', help='Private JSON with server environment values; never commit this file.')
     args = p.parse_args()
+    if args.redmond_demo and not 1 <= args.demo_interval <= 3600:
+        p.error('Use a demo interval between 1 and 3600 seconds.')
+    if args.redmond_demo and args.config:
+        p.error('The Redmond demo requires no provider configuration.')
     if args.config:
         values = json.loads(Path(args.config).read_text())
         for key in ['OLLAMA_HOST', 'OLLAMA_MODEL', 'OLLAMA_API_KEY', 'VERDI_SESSIONS_JSON', 'VERDI_ALLOWED_ORIGINS', 'PLAID_USER', 'PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ACCESS_TOKEN', 'PLAID_ENV', 'VERDI_SYNC_ENABLED', 'VERDI_SYNC_INTERVAL_SECONDS', 'VERDI_SYNC_MAX_BACKOFF_SECONDS']:
             if values.get(key):
                 os.environ[key] = str(values[key])
-    sessions = {'verdi-demo-consumer': {'user': 'alex', 'role': 'consumer'}, 'verdi-demo-analyst': {'user': 'analyst', 'role': 'analyst', 'org': 'cascadia'}} if args.demo else json.loads(os.getenv('VERDI_SESSIONS_JSON', '{}'))
-    if not sessions:
-        raise SystemExit('Live mode requires server-provisioned VERDI_SESSIONS_JSON. Do not embed live tokens in app builds.')
-    app = Platform(args.db or ('verdi-demo.sqlite' if args.demo else 'verdi-live.sqlite'), args.demo)
+    if args.redmond_demo:
+        sessions = {'verdi-redmond-demo': {'user': 'redmond-demo', 'role': 'consumer'}}
+        app = Platform(args.db or 'verdi-redmond-demo.sqlite', redmond_interval=args.demo_interval)
+    else:
+        sessions = {'verdi-demo-consumer': {'user': 'alex', 'role': 'consumer'}, 'verdi-demo-analyst': {'user': 'analyst', 'role': 'analyst', 'org': 'cascadia'}} if args.demo else json.loads(os.getenv('VERDI_SESSIONS_JSON', '{}'))
+        if not sessions:
+            raise SystemExit('Live mode requires server-provisioned VERDI_SESSIONS_JSON. Do not embed live tokens in app builds.')
+        app = Platform(args.db or ('verdi-demo.sqlite' if args.demo else 'verdi-live.sqlite'), args.demo)
     from sync_worker import SyncWorker
     worker = SyncWorker.from_env(app)
+    stop_demo = threading.Event()
+
+    def run_demo():
+        while not stop_demo.is_set():
+            try:
+                app.redmond.run_once()
+            except sqlite3.Error:
+                print('Redmond demo SQLite tick failed. Retrying.', flush=True)
+            stop_demo.wait(min(1, args.demo_interval / 2))
+
     with ThreadingHTTPServer(('127.0.0.1', args.port), handler(app, sessions, args.static)) as server:
-        print(f'Verdi {"synthetic demo" if args.demo else "live pilot"}: http://127.0.0.1:{args.port}')
+        print(f'Verdi {"synthetic demo" if app.demo else "live pilot"}: http://127.0.0.1:{server.server_port}', flush=True)
+        demo_thread = None
+        if app.redmond:
+            demo_thread = threading.Thread(target=run_demo, daemon=True, name='redmond-demo-sync')
+            demo_thread.start()
         if worker:
             worker.start()
             print('Background bank sync enabled.')
         try:
             server.serve_forever()
         finally:
+            stop_demo.set()
+            if demo_thread:
+                demo_thread.join()
             if worker:
                 worker.stop()
