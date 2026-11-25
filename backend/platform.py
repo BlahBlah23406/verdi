@@ -11,6 +11,7 @@ import math
 import os
 import re
 import sqlite3
+import time
 import urllib.request
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,6 +66,7 @@ class Platform:
             CREATE TABLE IF NOT EXISTS pledges(user TEXT,id TEXT,cents INTEGER,PRIMARY KEY(user,id));
             CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY,user TEXT,event TEXT,created TEXT DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS cursors(user TEXT PRIMARY KEY,cursor TEXT);
+            CREATE TABLE IF NOT EXISTS sync_state(user TEXT PRIMARY KEY,status TEXT NOT NULL,last_success INTEGER,last_attempt INTEGER,next_attempt INTEGER DEFAULT 0,failures INTEGER DEFAULT 0,generation INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE IF NOT EXISTS pilot_settings(user TEXT PRIMARY KEY,meter_timezone TEXT);
             CREATE INDEX IF NOT EXISTS evidence_provider_day ON evidence(user,provider,day);
             ''')
@@ -211,10 +213,13 @@ class Platform:
             provider = connection['provider']
             connection['mode'] = 'demo' if self.demo else {
                 'bank': f"plaid-{os.getenv('PLAID_ENV', 'sandbox')}" if PlaidConnector.configured(uid) else 'unavailable',
-                'utility': 'file-import',
+                'utility': 'unavailable',
                 'transport': 'manual',
-                'iot': 'supporting',
+                'iot': 'unavailable',
             }[provider]
+            if provider == 'bank':
+                connection.update(self.sync_public(uid, connection['connected']))
+                connection['automaticSyncEnabled'] = not self.demo and os.getenv('VERDI_SYNC_ENABLED') == '1'
         for r in rows:
             r['kg'] = r['quantity'] * r['factor']
             r['unit'] = FACTORS[r['kind']][1]
@@ -303,6 +308,11 @@ class Platform:
                     if not PlaidConnector.configured(uid):
                         raise Problem('Consented Plaid account not provisioned. Provider authorization is required.', 503)
                 c.execute('INSERT OR REPLACE INTO connections VALUES(?,?,?)', (uid, p, int(enabled)))
+                if p == 'bank':
+                    # Re-consent or disconnect invalidates any request already in flight.
+                    c.execute("""INSERT INTO sync_state(user,status) VALUES(?,'idle')
+                                 ON CONFLICT(user) DO UPDATE SET status='idle',next_attempt=0,
+                                 last_attempt=NULL,failures=0,generation=generation+1""", (uid,))
                 action = f'{p} import enabled' if enabled else f'{p} import disabled'
             elif action == 'review':
                 status = body.get('status')
@@ -346,35 +356,76 @@ class Platform:
             c.execute('INSERT INTO audit(user,event) VALUES(?,?)', (uid, action))
         return {'ok': True, 'simulation': self.demo}
 
-    def sync_bank(self, uid):
-        from connectors import PlaidConnector
-        if not PlaidConnector.configured(uid):
-            raise Problem('No authorized live banking account configured. Utility CSV imports remain available.', 503)
+    def sync_public(self, uid, connected=True):
+        """Safe public sync status: no provider text, tokens or error details."""
         with self.db() as c:
-            connection = c.execute("SELECT connected FROM connections WHERE user=? AND provider='bank'", (uid,)).fetchone()
-            cursor = c.execute('SELECT cursor FROM cursors WHERE user=?', (uid,)).fetchone()
+            s = c.execute('SELECT status,last_success FROM sync_state WHERE user=?', (uid,)).fetchone()
+        last = s['last_success'] if s and s['last_success'] else None
+        status = s['status'] if s else 'idle'
+        if not connected:
+            status = 'disconnected'
+        return {'syncStatus': status,
+                'lastSyncedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(last)) if last else None}
+
+    def bank_sync_state(self, c, uid):
+        connection = c.execute("SELECT connected FROM connections WHERE user=? AND provider='bank'", (uid,)).fetchone()
         if not connection or not connection[0]:
             raise Problem('Bank connection consent required.', 403)
+        state = c.execute('SELECT generation,last_attempt,failures FROM sync_state WHERE user=?', (uid,)).fetchone()
+        cursor = c.execute('SELECT cursor FROM cursors WHERE user=?', (uid,)).fetchone()
+        return (*(state if state else (0, None, 0)), cursor[0] if cursor else '')
+
+    def sync_bank(self, uid, now=None, backoff=None):
+        from connectors import AuthRequired, PlaidConnector
+        if not PlaidConnector.configured(uid):
+            raise Problem('No authorized Plaid account configured.', 503)
+        with self.db() as c:
+            state = self.bank_sync_state(c, uid)
+        _, _, failures, cursor = state
+        outcome, retry_after, result = 'ok', 0, None
         try:
-            result = PlaidConnector().fetch(cursor[0] if cursor else '')
+            result = PlaidConnector().fetch(cursor)
+        except AuthRequired:
+            outcome = 'auth_required'
         except Exception:
-            raise Problem('Bank provider unavailable. Saved cursor and transactions kept for retry.', 503)
+            outcome = 'retrying'
+            retry_after = backoff(failures) if backoff else 0
+        now = int(now if now is not None else time.time())
         with self.db() as c:
             c.execute('BEGIN IMMEDIATE')
-            # Consent may have changed while the provider request was in flight.
-            connection = c.execute("SELECT connected FROM connections WHERE user=? AND provider='bank'", (uid,)).fetchone()
-            if not connection or not connection[0]:
-                raise Problem('Bank connection was disconnected during sync.', 403)
-            current = c.execute('SELECT cursor FROM cursors WHERE user=?', (uid,)).fetchone()
-            if (current[0] if current else '') != (cursor[0] if cursor else ''):
-                raise Problem('Another sync completed first. Retry.', 409)
-            for row in result['transactions']:
-                c.execute('INSERT OR REPLACE INTO transactions VALUES(?,?,?,?,?,?)', (row['id'],uid,row['day'],row['cents'],int(row['pending']),int(row['refund'])))
-            for rid in result['removed']:
-                c.execute('DELETE FROM transactions WHERE user=? AND id=?', (uid,rid))
-            c.execute('INSERT OR REPLACE INTO cursors VALUES(?,?)', (uid,result['cursor']))
-            c.execute('INSERT INTO audit(user,event) VALUES(?,?)', (uid,'Synced consented bank transactions; no distance inferred'))
+            if self.bank_sync_state(c, uid) != state:
+                raise Problem('Bank connection or sync state changed during this request.', 409)
+            c.execute("INSERT OR IGNORE INTO sync_state(user,status) VALUES(?,'idle')", (uid,))
+            if result is not None:
+                for row in result['transactions']:
+                    c.execute('INSERT OR REPLACE INTO transactions VALUES(?,?,?,?,?,?)', (row['id'],uid,row['day'],row['cents'],int(row['pending']),int(row['refund'])))
+                for rid in result['removed']:
+                    c.execute('DELETE FROM transactions WHERE user=? AND id=?', (uid,rid))
+                c.execute('INSERT OR REPLACE INTO cursors VALUES(?,?)', (uid,result['cursor']))
+                c.execute('INSERT INTO audit(user,event) VALUES(?,?)', (uid,'Synced consented bank transactions; no distance inferred'))
+                c.execute("UPDATE sync_state SET status='ok',last_success=?,last_attempt=?,next_attempt=0,failures=0 WHERE user=?", (now, now, uid))
+            else:
+                c.execute('UPDATE sync_state SET status=?,last_attempt=?,next_attempt=?,failures=failures+1 WHERE user=?', (outcome, now, now + retry_after, uid))
+        if outcome == 'auth_required':
+            raise Problem('Bank authorization needs renewal.', 409)
+        if outcome == 'retrying':
+            raise Problem('Bank provider unavailable. Saved cursor and transactions kept for retry.', 503)
         return {'added':len(result['transactions']), 'duplicates':0, 'removed':len(result['removed'])}
+
+    def due_bank_users(self, now, interval):
+        """Connected, provisioned bank users whose next attempt is due. Never in demo."""
+        from connectors import PlaidConnector
+        if self.demo:
+            return []
+        with self.db() as c:
+            rows = c.execute("SELECT c.user,s.status,s.next_attempt,s.last_attempt FROM connections c LEFT JOIN sync_state s ON s.user=c.user WHERE c.provider='bank' AND c.connected=1").fetchall()
+        due = []
+        for r in rows:
+            if r['status'] == 'auth_required' or not PlaidConnector.configured(r['user']):
+                continue
+            if now >= (r['next_attempt'] or 0) and (r['last_attempt'] is None or now - r['last_attempt'] >= interval):
+                due.append(r['user'])
+        return due
 
     def aggregate(self, org):
         with self.db() as c:
@@ -529,12 +580,22 @@ if __name__ == '__main__':
     args = p.parse_args()
     if args.config:
         values = json.loads(Path(args.config).read_text())
-        for key in ['OLLAMA_HOST', 'OLLAMA_MODEL', 'OLLAMA_API_KEY', 'VERDI_SESSIONS_JSON', 'VERDI_ALLOWED_ORIGINS', 'PLAID_USER', 'PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ACCESS_TOKEN', 'PLAID_ENV']:
+        for key in ['OLLAMA_HOST', 'OLLAMA_MODEL', 'OLLAMA_API_KEY', 'VERDI_SESSIONS_JSON', 'VERDI_ALLOWED_ORIGINS', 'PLAID_USER', 'PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ACCESS_TOKEN', 'PLAID_ENV', 'VERDI_SYNC_ENABLED', 'VERDI_SYNC_INTERVAL_SECONDS', 'VERDI_SYNC_MAX_BACKOFF_SECONDS']:
             if values.get(key):
                 os.environ[key] = str(values[key])
     sessions = {'verdi-demo-consumer': {'user': 'alex', 'role': 'consumer'}, 'verdi-demo-analyst': {'user': 'analyst', 'role': 'analyst', 'org': 'cascadia'}} if args.demo else json.loads(os.getenv('VERDI_SESSIONS_JSON', '{}'))
     if not sessions:
         raise SystemExit('Live mode requires server-provisioned VERDI_SESSIONS_JSON. Do not embed live tokens in app builds.')
     app = Platform(args.db or ('verdi-demo.sqlite' if args.demo else 'verdi-live.sqlite'), args.demo)
-    print(f'Verdi {"synthetic demo" if args.demo else "live pilot"}: http://127.0.0.1:{args.port}')
-    ThreadingHTTPServer(('127.0.0.1', args.port), handler(app, sessions, args.static)).serve_forever()
+    from sync_worker import SyncWorker
+    worker = SyncWorker.from_env(app)
+    with ThreadingHTTPServer(('127.0.0.1', args.port), handler(app, sessions, args.static)) as server:
+        print(f'Verdi {"synthetic demo" if args.demo else "live pilot"}: http://127.0.0.1:{args.port}')
+        if worker:
+            worker.start()
+            print('Background bank sync enabled.')
+        try:
+            server.serve_forever()
+        finally:
+            if worker:
+                worker.stop()

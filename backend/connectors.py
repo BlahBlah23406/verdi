@@ -15,6 +15,13 @@ class PaginationChanged(ValueError):
     pass
 
 
+class AuthRequired(ValueError):
+    pass
+
+
+AUTH_CODES = {'ITEM_LOGIN_REQUIRED', 'INVALID_ACCESS_TOKEN', 'ITEM_LOCKED', 'USER_PERMISSION_REVOKED', 'ACCESS_NOT_GRANTED'}
+
+
 class PlaidConnector:
     def __init__(self, transport=None):
         self.transport = transport or self._post
@@ -55,6 +62,8 @@ class PlaidConnector:
             payload = self.transport('/transactions/sync', {'cursor': cursor, 'count': 500})
             if payload.get('error_code') == 'TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION':
                 raise PaginationChanged('Plaid changed transactions during pagination.')
+            if payload.get('error_code') in AUTH_CODES:
+                raise AuthRequired('Plaid authorization must be renewed.')
             if payload.get('error_code'):
                 raise ValueError('Provider sync failed; retry from the saved cursor.')
             for row in payload.get('added', []) + payload.get('modified', []):

@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -130,8 +129,6 @@ class _PlatformHomeState extends State<PlatformHome> {
   );
   PilotPhoneCapture? phone;
   bool phoneBusy = false;
-  bool pickingFile = false;
-  bool bankSyncAttempted = false;
 
   bool get nativeConsumer =>
       !widget.demo &&
@@ -178,7 +175,6 @@ class _PlatformHomeState extends State<PlatformHome> {
         data = null;
         tab = 0;
         institutionTab = 0;
-        bankSyncAttempted = false;
         error = signOutNotice;
       });
     } catch (_) {
@@ -194,35 +190,6 @@ class _PlatformHomeState extends State<PlatformHome> {
       (snapshot['connections'] as List).any(
         (source) => source['provider'] == provider && source['connected'] == 1,
       );
-
-  bool bankSyncAvailable(Map<String, dynamic> snapshot) =>
-      (snapshot['connections'] as List).any(
-        (source) =>
-            source['provider'] == 'bank' &&
-            source['connected'] == 1 &&
-            (source['mode'] == 'plaid-production' ||
-                source['mode'] == 'plaid-sandbox'),
-      );
-
-  Future<void> syncBankOnOpen(Map<String, dynamic> snapshot) async {
-    if (!bankSyncAvailable(snapshot)) {
-      bankSyncAttempted = false;
-      return;
-    }
-    if (bankSyncAttempted) return;
-    bankSyncAttempted = true;
-    try {
-      await api!.request('sync', {});
-      final latest = await api!.request('me');
-      if (mounted) setState(() => data = latest);
-    } catch (_) {
-      if (mounted) {
-        setState(
-          () => error = 'Bank sync did not finish. Try Sync bank transactions in Connections.',
-        );
-      }
-    }
-  }
 
   Future<void> configurePhone(Map<String, dynamic> snapshot) async {
     final base = api!.base;
@@ -288,9 +255,6 @@ class _PlatformHomeState extends State<PlatformHome> {
           }
         }
       }
-      if (mounted && !widget.demo && !widget.institutional) {
-        await syncBankOnOpen(result);
-      }
     } catch (e) {
       if (e is PlatformRequestError && e.status == 401 && !widget.demo) {
         await signOut();
@@ -353,8 +317,6 @@ class _PlatformHomeState extends State<PlatformHome> {
                 '${response['added']} bank records updated, ${response['removed']} removed',
               'sync' || 'import' || 'import-phone-trip' =>
                 '${response['added']} new records, ${response['duplicates']} duplicates skipped',
-              'import-green-button' =>
-                '${response['added']} days ready for review, ${response['duplicates']} duplicates, ${response['incompleteDays']} incomplete days skipped',
               _ => 'Saved${widget.demo ? ' to the synthetic demo' : ''}',
             }),
           ),
@@ -412,7 +374,7 @@ class _PlatformHomeState extends State<PlatformHome> {
     VoidCallback? onTap, {
     IconData icon = Icons.arrow_forward,
   }) => FilledButton.icon(
-    onPressed: busy || phoneBusy || pickingFile ? null : onTap,
+    onPressed: busy || phoneBusy ? null : onTap,
     icon: Icon(icon, size: 18),
     label: Text(text),
   );
@@ -443,13 +405,13 @@ class _PlatformHomeState extends State<PlatformHome> {
         if (api != null)
           IconButton(
             tooltip: 'Refresh data',
-            onPressed: busy || phoneBusy || pickingFile ? null : refresh,
+            onPressed: busy || phoneBusy ? null : refresh,
             icon: const Icon(Icons.refresh),
           ),
         if (api != null && !widget.demo)
           IconButton(
             tooltip: 'Sign out',
-            onPressed: busy || phoneBusy || pickingFile ? null : signOut,
+            onPressed: busy || phoneBusy ? null : signOut,
             icon: const Icon(Icons.logout),
           ),
         const SizedBox(width: 12),
@@ -616,7 +578,9 @@ class _PlatformHomeState extends State<PlatformHome> {
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Start with home electricity or travel.'),
+              const Text(
+                'See which sources are available for your pilot account.',
+              ),
               button(
                 'Set up your sources',
                 () => setState(() => tab = 1),
@@ -749,6 +713,12 @@ class _PlatformHomeState extends State<PlatformHome> {
           ),
         ),
       ),
+      if (!widget.demo)
+        TextButton.icon(
+          onPressed: busy || phoneBusy ? null : logTrip,
+          icon: const Icon(Icons.add),
+          label: const Text('Log a trip manually'),
+        ),
       title('Activity journal'),
       ...activities
           .where((e) => e['status'] == 'confirmed')
@@ -777,68 +747,8 @@ class _PlatformHomeState extends State<PlatformHome> {
     ];
   }
 
-  Future<void> importElectricity({required bool xml}) async {
-    if (busy || phoneBusy || pickingFile) return;
-    setState(() => pickingFile = true);
-    try {
-      final picked = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: [xml ? 'xml' : 'csv'],
-        withData: true,
-      );
-      if (picked == null || !mounted) return;
-      final bytes = picked.files.single.bytes;
-      if (bytes == null) {
-        throw const FormatException('Could not read that file.');
-      }
-      if (bytes.length > (xml ? 5000000 : 1000000)) {
-        throw FormatException('Choose a file smaller than ${xml ? 5 : 1} MB.');
-      }
-      final input = utf8.decode(bytes);
-      if (xml) {
-        if (!await enableUtility()) return;
-        if (!mounted) return;
-        if (await act('import-green-button', {'xml': input}) && mounted) {
-          setState(() => tab = 0);
-        }
-        return;
-      }
-      final candidates = parseUtilityCsv(
-        input,
-        (data!['user'] as Map)['id'] as String,
-      );
-      if (!await enableUtility() || !mounted) return;
-      if (await act('import', {
-            'provider': 'utility',
-            'records': candidates
-                .map(
-                  (c) => {
-                    'id': c.id,
-                    'day': c.start.toIso8601String().substring(0, 10),
-                    'kind': 'electricity',
-                    'quantity': c.quantity,
-                    'description': 'Imported utility reading',
-                  },
-                )
-                .toList(),
-          }) &&
-          mounted) {
-        setState(() => tab = 0);
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = e.toString());
-    } finally {
-      if (mounted) setState(() => pickingFile = false);
-    }
-  }
-
-  Future<bool> enableUtility() async {
-    if (sourceEnabled(data!, 'utility')) return true;
-    return act('connection', {'provider': 'utility', 'enabled': true});
-  }
-
   Future<void> withPhone(Future<void> Function() action) async {
-    if (phoneBusy || busy || pickingFile) return;
+    if (phoneBusy || busy) return;
     setState(() => phoneBusy = true);
     try {
       await action();
@@ -1089,96 +999,111 @@ class _PlatformHomeState extends State<PlatformHome> {
 
   List<Widget> connections() {
     final sources = (data!['connections'] as List).cast<Map>();
-    final bankEnabled = bankSyncAvailable(data!);
-    final utilityEnabled = sourceEnabled(data!, 'utility');
+    if (widget.demo) {
+      return [
+        title('Connections'),
+        for (final source in sources)
+          box(
+            SwitchListTile(
+              title: Text(switch (source['provider']) {
+                'bank' => 'Bank transactions',
+                'utility' => 'Home energy',
+                'transport' => 'Travel',
+                _ => 'Smart devices',
+              }),
+              subtitle: const Text('Fictional provider · SQLite demo records'),
+              value: source['connected'] == 1,
+              onChanged: busy
+                  ? null
+                  : (enabled) => act('connection', {
+                      'provider': source['provider'],
+                      'enabled': enabled,
+                    }),
+            ),
+          ),
+        button('Sync demo data', () => act('sync', {}), icon: Icons.sync),
+      ];
+    }
+
     final travelEnabled = sourceEnabled(data!, 'transport');
-    final meterTimeZone = data!['meterTimeZone'];
+    final bank = sources.cast<Map?>().firstWhere(
+      (source) => source?['provider'] == 'bank',
+      orElse: () => null,
+    );
+    final canConnectBank =
+        bank?['automaticSyncEnabled'] == true &&
+        (bank?['mode'] == 'plaid-production' ||
+            bank?['mode'] == 'plaid-sandbox');
+    final bankConnected = bank?['connected'] == 1;
     return [
       title('Connections'),
-      if (!widget.demo) ...[
-        title('Home electricity'),
-        if (meterTimeZone != null) ...[
-          const Text(
-            'In myPSE, open My usage → Green Button. If XML is available, export one '
-            'electric meter. Verdi imports complete days in your meter time zone.',
+      if (phone case final capture?) phoneSetup(capture, travelEnabled),
+      box(
+        SwitchListTile(
+          title: Text(
+            bank?['mode'] == 'plaid-sandbox'
+                ? 'Bank transactions (Sandbox)'
+                : 'Bank transactions',
           ),
-          Text('Meter time zone · $meterTimeZone'),
-          button(
-            'Upload Green Button XML',
-            () => importElectricity(xml: true),
-            icon: Icons.upload_file,
-          ),
-        ],
-        const Text(
-          'You can also upload a CSV with record_id, date and kwh. Uploading '
-          'enables Home energy and queues readings for review. Upload again '
-          'when you have new readings.',
+          subtitle: Text(bankStatus(bank, canConnectBank)),
+          contentPadding: EdgeInsets.zero,
+          value: bankConnected,
+          onChanged: busy || phoneBusy || (!canConnectBank && !bankConnected)
+              ? null
+              : (enabled) =>
+                    act('connection', {'provider': 'bank', 'enabled': enabled}),
         ),
-        button(
-          'Upload electricity CSV',
-          () => importElectricity(xml: false),
-          icon: Icons.upload_file,
-        ),
-        if (phone case final capture?) phoneSetup(capture, travelEnabled),
-        button('Log a trip', logTrip, icon: Icons.directions_transit),
-        title('Manage sources'),
-      ],
-      const Text(
-        'Disconnect a source to stop new imports and keep confirmed history.',
       ),
-      const SizedBox(height: 18),
-      ...sources.map(
-        (e) => box(
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: Text(
-              {
-                'bank': 'Bank transactions',
-                'utility': 'Home energy',
-                'transport': 'Travel',
-                'iot': 'Smart devices',
-              }[e['provider']]!,
-            ),
-            subtitle: Text(
-              widget.demo
-                  ? 'Fictional provider · SQLite demo records'
-                  : switch (e['mode']) {
-                      'plaid-production' => 'Plaid · syncs when you open Verdi',
-                      'plaid-sandbox' =>
-                        'Plaid Sandbox · syncs test transactions on open',
-                      'file-import' => 'Upload a utility export',
-                      'manual' =>
-                        'Log trips using your travel mode and distance',
-                      'supporting' => 'Device readings through the pilot API',
-                      _ => 'Requires a Plaid account provisioned by the pilot administrator',
-                    },
-            ),
-            value: e['connected'] == 1,
-            onChanged:
-                busy ||
-                    phoneBusy ||
-                    (e['mode'] == 'unavailable' && e['connected'] != 1)
-                ? null
-                : (v) => act('connection', {
-                    'provider': e['provider'],
-                    'enabled': v,
-                  }),
+      title('Provider access pending'),
+      box(
+        const ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('PSE electricity and gas'),
+          subtitle: Text(
+            'Automatic access for Redmond residential accounts is pending.',
           ),
         ),
       ),
-      if (widget.demo || bankEnabled)
-        button(
-          widget.demo ? 'Sync connected sources' : 'Sync bank transactions',
-          () => act('sync', {}),
-          icon: Icons.sync,
+      box(
+        const ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: Text('ORCA'),
+          subtitle: Text(
+            'Automatic access to personal card activity is pending.',
+          ),
         ),
-      if (widget.demo && utilityEnabled)
-        button(
-          'Choose electricity CSV',
-          () => importElectricity(xml: false),
-          icon: Icons.upload_file,
+      ),
+      if (travelEnabled)
+        TextButton(
+          onPressed: busy || phoneBusy
+              ? null
+              : () => act('connection', {
+                  'provider': 'transport',
+                  'enabled': false,
+                }),
+          child: const Text('Disconnect travel'),
         ),
     ];
+  }
+
+  String bankStatus(Map? bank, bool canConnect) {
+    if (!canConnect) {
+      return 'Automatic bank access is unavailable for this pilot account.';
+    }
+    if (bank?['connected'] != 1) {
+      return 'Enable automatic syncing with your authorized Plaid account.';
+    }
+    final timestamp = bank?['lastSyncedAt'];
+    final lastSync = timestamp is String ? DateTime.tryParse(timestamp) : null;
+    return switch (bank?['syncStatus']) {
+      'ok' when lastSync != null =>
+        'Automatically synced · ${MaterialLocalizations.of(context).formatMediumDate(lastSync.toLocal())}',
+      'ok' => 'Automatically synced',
+      'retrying' => 'Sync delayed. Verdi will retry automatically.',
+      'auth_required' =>
+        'Bank authorization needs attention. Contact your pilot administrator.',
+      _ => 'Waiting for automatic sync',
+    };
   }
 
   List<Widget> rewards() => [

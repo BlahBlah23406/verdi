@@ -44,7 +44,6 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     var travel = false;
     var bank = false;
-    var bankSyncs = 0;
     final requests = <String>[];
     await http.runWithClient(
       () async {
@@ -58,6 +57,8 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('Set up your sources'));
         await tester.pumpAndSettle();
+        expect(find.textContaining('Upload'), findsNothing);
+        expect(find.text('Sync bank transactions'), findsNothing);
         await tester.scrollUntilVisible(
           find.text('Enable trip detection'),
           200,
@@ -79,10 +80,18 @@ void main() {
         await tester.pumpAndSettle();
         expect(find.text('Sign in'), findsNothing);
         expect(locationCalls, [true, false]);
-        expect(bankSyncs, 1);
         await tester.tap(find.byTooltip('Refresh data'));
         await tester.pumpAndSettle();
-        expect(bankSyncs, 1);
+        expect(requests, isNot(contains('/api/sync')));
+        await tester.tap(find.text('Connections').last);
+        await tester.pumpAndSettle();
+        await tester.scrollUntilVisible(find.text('Automatically synced'), 200);
+        expect(find.text('Automatically synced'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.text('PSE electricity and gas'),
+          200,
+        );
+        expect(find.text('PSE electricity and gas'), findsOneWidget);
         expect(
           requests.where((path) => path == '/api/connection'),
           hasLength(1),
@@ -111,9 +120,6 @@ void main() {
             });
             travel = true;
             return http.Response('{}', 200);
-          case '/api/sync':
-            bankSyncs++;
-            return http.Response('{"added":0,"removed":0}', 200);
           case '/api/me':
             return http.Response(
               jsonEncode({
@@ -122,7 +128,7 @@ void main() {
                   {
                     'provider': 'utility',
                     'connected': 0,
-                    'mode': 'file-import',
+                    'mode': 'unavailable',
                   },
                   {
                     'provider': 'transport',
@@ -133,6 +139,8 @@ void main() {
                     'provider': 'bank',
                     'connected': bank ? 1 : 0,
                     'mode': 'plaid-sandbox',
+                    'syncStatus': bank ? 'ok' : 'disconnected',
+                    'automaticSyncEnabled': true,
                   },
                 ],
                 'meterTimeZone': 'America/Los_Angeles',
