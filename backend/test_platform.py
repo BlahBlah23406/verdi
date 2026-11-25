@@ -53,6 +53,39 @@ class PlatformTests(unittest.TestCase):
         self.assertEqual(self.app.mutate(self.uid,'sync',{})['added'],0)
         self.assertEqual(next(r for r in self.app.snapshot(self.uid)['activities'] if r['id']==item['id'])['status'],'confirmed')
 
+    def test_phone_trip_consent_review_retry_and_reward_exclusion(self):
+        trip = {
+            'id': 'phone:1790866800000000:1790866920000000',
+            'day': '2026-10-01', 'kind': 'bus', 'quantity': 1.4,
+            'description': 'Ignored client description',
+        }
+        self.app.mutate(self.uid, 'connection', {'provider': 'transport', 'enabled': False})
+        with self.assertRaisesRegex(v.Problem, 'consent required'):
+            self.app.mutate(self.uid, 'import-phone-trip', trip)
+        self.app.mutate(self.uid, 'connection', {'provider': 'transport', 'enabled': True})
+        with self.assertRaisesRegex(v.Problem, 'phone trip review endpoint'):
+            self.app.ingest(self.uid, 'transport', [trip])
+        with self.assertRaisesRegex(v.Problem, 'distance'):
+            self.app.mutate(self.uid, 'import-phone-trip', {**trip, 'quantity': 100})
+        with self.assertRaisesRegex(v.Problem, 'ID'):
+            self.app.mutate(self.uid, 'import-phone-trip', {**trip, 'id': 'phone:7'})
+        self.assertEqual(self.app.mutate(self.uid, 'import-phone-trip', trip), {'added': 1, 'duplicates': 0})
+        self.assertEqual(self.app.mutate(self.uid, 'import-phone-trip', trip), {'added': 0, 'duplicates': 1})
+        with self.assertRaisesRegex(v.Problem, 'record changed'):
+            self.app.mutate(self.uid, 'import-phone-trip', {**trip, 'kind': 'car'})
+        sid = 'transport:' + trip['id']
+        saved = next(item for item in self.app.snapshot(self.uid)['activities'] if item['id'] == sid)
+        self.assertEqual(saved['status'], 'pending')
+        self.assertEqual(saved['description'], 'Phone trip · selected travel mode')
+        self.app.mutate(self.uid, 'review', {'id': sid, 'status': 'confirmed'})
+        with self.app.db() as c:
+            c.execute(
+                "DELETE FROM evidence WHERE user=? AND provider='transport' AND day=? AND id!=?",
+                (self.uid, trip['day'], sid),
+            )
+        with self.assertRaises(v.Problem):
+            self.app.monthly_reward(self.uid, '2026-10')
+
     def test_import_is_atomic_and_rejects_conflicting_correction(self):
         self.app.mutate(self.uid,'sync',{})
         with self.assertRaises(v.Problem):
@@ -179,6 +212,57 @@ class PlatformTests(unittest.TestCase):
             self.assertEqual(self.app.user('evergreen-01')['consent'],1)
         finally:
             server.shutdown();server.server_close();thread.join()
+
+
+    def test_http_import_phone_trip_endpoint(self):
+        sessions = {
+            'consumer': {'user': 'alex', 'role': 'consumer'},
+            'analyst': {'user': 'x', 'role': 'analyst', 'org': 'cascadia'},
+        }
+        server = ThreadingHTTPServer(('127.0.0.1', 0), v.handler(self.app, sessions))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        def request(path, token, body=None):
+            req = urllib.request.Request(
+                f'http://127.0.0.1:{server.server_port}/api/{path}',
+                headers={'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+                data=json.dumps(body).encode() if body is not None else None,
+            )
+            return urllib.request.urlopen(req)
+
+        try:
+            payload = {
+                'id': 'phone:1792450800000000:1792450980000000',
+                'day': '2026-10-20',
+                'kind': 'bus',
+                'quantity': 11.5,
+            }
+            with self.assertRaises(urllib.error.HTTPError) as err:
+                request('import-phone-trip', 'missing', payload)
+            self.assertEqual(err.exception.code, 401)
+
+            with self.assertRaises(urllib.error.HTTPError) as err:
+                request('import-phone-trip', 'analyst', payload)
+            self.assertEqual(err.exception.code, 403)
+
+            with request('import-phone-trip', 'consumer', payload) as resp:
+                self.assertEqual(resp.status, 200)
+                data = json.load(resp)
+                self.assertEqual(data, {'added': 1, 'duplicates': 0})
+
+            with request('import-phone-trip', 'consumer', payload) as resp:
+                self.assertEqual(resp.status, 200)
+                data = json.load(resp)
+                self.assertEqual(data, {'added': 0, 'duplicates': 1})
+
+            with self.assertRaises(urllib.error.HTTPError) as err:
+                request('import-phone-trip', 'consumer', {**payload, 'id': 'invalid'})
+            self.assertEqual(err.exception.code, 400)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
 
 
 if __name__=='__main__': unittest.main()

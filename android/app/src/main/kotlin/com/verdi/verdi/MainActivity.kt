@@ -22,7 +22,8 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler, LocationList
     }
     override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
         sink = events
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+        if (arguments != false &&
+            checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 410)
         } else startLocations()
     }
@@ -65,7 +66,7 @@ class MainActivity : FlutterActivity(), EventChannel.StreamHandler, LocationList
     override fun onCancel(arguments: Any?) { manager.removeUpdates(this); sink = null }
     override fun onStop() {
         manager.removeUpdates(this)
-        sink?.error("paused", "App left the foreground. Re-enable tracking when you return.", null)
+        sink?.error("paused", "App left the foreground.", null)
         super.onStop()
     }
     override fun onDestroy() { manager.removeUpdates(this); sink = null; super.onDestroy() }

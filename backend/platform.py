@@ -9,6 +9,7 @@ import hmac
 import json
 import math
 import os
+import re
 import sqlite3
 import urllib.request
 from datetime import date, timedelta
@@ -106,7 +107,7 @@ class Platform:
             raise Problem('Account not provisioned.', 404)
         return dict(r)
 
-    def ingest(self, uid, provider, records, *, green_button=False):
+    def ingest(self, uid, provider, records, *, green_button=False, phone_trip=False):
         user = self.user(uid)
         if not isinstance(provider, str) or provider not in PROVIDERS or not isinstance(records, list) or not 0 < len(records) <= 1000:
             raise Problem('Unknown provider or too many records.')
@@ -130,6 +131,8 @@ class Platform:
             rid = str(r.get('id', '')).strip()
             if not rid or len(rid) > 160 or (rid.startswith('green-button:') and not green_button):
                 raise Problem('Stable source record ID required.')
+            if rid.lower().startswith(('phone:', 'transport:phone:')) and not phone_trip:
+                raise Problem('Use the phone trip review endpoint for phone summaries.')
             # Submeters remain supporting evidence until an explicit meter boundary model exists.
             status = 'supporting' if provider == 'iot' else 'pending'
             regional = kind == 'electricity' and user['region'] in (REGIONS['nwpp'], REGIONS['redmond'])
@@ -155,6 +158,25 @@ class Platform:
                 added += c.execute('INSERT OR IGNORE INTO evidence VALUES(?,?,?,?,?,?,?,?,?,?)', row).rowcount
             c.execute('INSERT INTO audit(user,event) VALUES(?,?)', (uid, f'Imported {added} {provider} records'))
         return {'added': added, 'duplicates': len(records) - added}
+
+    def import_phone_trip(self, uid, body):
+        rid = body.get('id')
+        match = re.fullmatch(r'phone:([1-9][0-9]{0,15}):([1-9][0-9]{0,15})', rid) if isinstance(rid, str) else None
+        if not match:
+            raise Problem('Stable phone trip ID required.')
+        start, end = map(int, match.groups())
+        if end - start < 60_000_000:
+            raise Problem('Phone trip must cover at least one minute.')
+        day = body.get('day')
+        if not isinstance(day, str) or not re.fullmatch(r'[0-9]{4}-[0-9]{2}-[0-9]{2}', day):
+            raise Problem('Use a valid ISO date.')
+        quantity = positive(body.get('quantity'))
+        if quantity < 0.1 or quantity > 70 * (end - start) / 1_000_000_000:
+            raise Problem('Phone distance is outside the supported range.')
+        return self.ingest(uid, 'transport', [{
+            'id': rid, 'day': day, 'kind': body.get('kind'),
+            'quantity': quantity, 'description': 'Phone trip · selected travel mode',
+        }], phone_trip=True)
 
     def import_green_button(self, uid, document):
         from green_button import daily_readings
@@ -234,7 +256,7 @@ class Platform:
                     rows = c.execute(
                         """SELECT day,quantity,factor,version FROM evidence
                            WHERE user=? AND provider=? AND substr(day,1,7)=? AND status='confirmed'
-                           AND id NOT LIKE 'transport:manual:%'""", (uid, provider, period)).fetchall()
+                           AND id NOT LIKE 'transport:manual:%' AND id NOT LIKE 'transport:phone:%'""", (uid, provider, period)).fetchall()
                     allowed = {NATIONAL_VERSION, NORTHWEST_VERSION} if provider == 'utility' else {NATIONAL_VERSION}
                     used = {r['version'] for r in rows}
                     if len(used) > 1 or not used.issubset(allowed) or (provider in versions and used != versions[provider]):
@@ -261,6 +283,8 @@ class Platform:
             return self.ingest(uid, 'transport', [{'id': 'receipt-oct31', 'day': '2026-10-31', 'kind': 'bus', 'quantity': 18.4, 'description': 'Transit receipt awaiting review'}])
         if action == 'import':
             return self.ingest(uid, body.get('provider'), body.get('records'))
+        if action == 'import-phone-trip':
+            return self.import_phone_trip(uid, body)
         if action == 'import-green-button':
             return self.import_green_button(uid, body.get('xml'))
         with self.db() as c:

@@ -1,4 +1,5 @@
 // Shared responsive Flutter UI for consumer rewards and institution analytics.
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'pilot_phone_capture.dart';
 
 import '../domain/automation.dart';
 import '../features/institution_map_view.dart'
@@ -58,12 +63,20 @@ class PlatformApi {
       throw StateError('The API returned an unexpected response.');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError(payload['error'] as String? ?? 'Request failed.');
+      throw PlatformRequestError(
+        response.statusCode,
+        payload['error'] as String? ?? 'Request failed.',
+      );
     }
     return payload;
   }
 
   void dispose() => client.close();
+}
+
+class PlatformRequestError extends StateError {
+  PlatformRequestError(this.status, super.message);
+  final int status;
 }
 
 class PlatformApp extends StatelessWidget {
@@ -110,6 +123,119 @@ class _PlatformHomeState extends State<PlatformHome> {
   int institutionTab = 0;
   String period = '2026-10';
   final tokenController = TextEditingController();
+  static const secureStorage = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.unlocked_this_device,
+    ),
+  );
+  PilotPhoneCapture? phone;
+  bool phoneBusy = false;
+  bool pickingFile = false;
+  bool bankSyncAttempted = false;
+
+  bool get nativeConsumer =>
+      !widget.demo &&
+      !widget.institutional &&
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.iOS ||
+          defaultTargetPlatform == TargetPlatform.android);
+  String get sessionKey =>
+      'verdi.pilot.session.v1.${PlatformApi._defaultBase()}';
+
+  Future<void> restoreSession() async {
+    setState(() => busy = true);
+    try {
+      final token = await secureStorage.read(key: sessionKey);
+      if (!mounted || token == null) return;
+      api = PlatformApi(token);
+      await refresh();
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Could not restore your pilot sign-in.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> signOut() async {
+    setState(() => busy = true);
+    try {
+      if (nativeConsumer) await secureStorage.delete(key: sessionKey);
+      if (!mounted) return;
+      String? signOutNotice;
+      try {
+        await phone?.setConsent(false);
+      } catch (_) {
+        signOutNotice = 'Could not save the last phone trip.';
+      }
+      if (!mounted) return;
+      phone?.dispose();
+      phone = null;
+      api?.dispose();
+      setState(() {
+        api = null;
+        data = null;
+        tab = 0;
+        institutionTab = 0;
+        bankSyncAttempted = false;
+        error = signOutNotice;
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Could not finish signing out. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  bool sourceEnabled(Map<String, dynamic> snapshot, String provider) =>
+      (snapshot['connections'] as List).any(
+        (source) => source['provider'] == provider && source['connected'] == 1,
+      );
+
+  bool bankSyncAvailable(Map<String, dynamic> snapshot) =>
+      (snapshot['connections'] as List).any(
+        (source) =>
+            source['provider'] == 'bank' &&
+            source['connected'] == 1 &&
+            (source['mode'] == 'plaid-production' ||
+                source['mode'] == 'plaid-sandbox'),
+      );
+
+  Future<void> syncBankOnOpen(Map<String, dynamic> snapshot) async {
+    if (!bankSyncAvailable(snapshot)) {
+      bankSyncAttempted = false;
+      return;
+    }
+    if (bankSyncAttempted) return;
+    bankSyncAttempted = true;
+    try {
+      await api!.request('sync', {});
+      final latest = await api!.request('me');
+      if (mounted) setState(() => data = latest);
+    } catch (_) {
+      if (mounted) {
+        setState(
+          () => error = 'Bank sync did not finish. Try Sync bank transactions in Connections.',
+        );
+      }
+    }
+  }
+
+  Future<void> configurePhone(Map<String, dynamic> snapshot) async {
+    final base = api!.base;
+    final user = (snapshot['user'] as Map)['id'];
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    final capture = phone ??= PilotPhoneCapture(
+      prefs,
+      jsonEncode([base, user]),
+    );
+    await capture.setConsent(sourceEnabled(snapshot, 'transport'));
+  }
+
   @override
   void initState() {
     super.initState();
@@ -118,17 +244,20 @@ class _PlatformHomeState extends State<PlatformHome> {
         widget.institutional ? 'verdi-demo-analyst' : 'verdi-demo-consumer',
       );
       refresh();
+    } else if (nativeConsumer) {
+      unawaited(restoreSession());
     }
   }
 
   @override
   void dispose() {
+    phone?.dispose();
     api?.dispose();
     tokenController.dispose();
     super.dispose();
   }
 
-  Future<void> refresh() async {
+  Future<void> refresh({bool remember = false}) async {
     setState(() {
       busy = true;
       error = null;
@@ -137,8 +266,41 @@ class _PlatformHomeState extends State<PlatformHome> {
       final result = await api!.request(
         widget.institutional ? 'institution' : 'me',
       );
-      if (mounted) setState(() => data = result);
+      if (!mounted) return;
+      setState(() => data = result);
+      if (remember && nativeConsumer) {
+        try {
+          await secureStorage.write(key: sessionKey, value: api!.token);
+        } catch (_) {
+          if (mounted) {
+            setState(
+              () => error = 'Could not remember this sign-in on your phone.',
+            );
+          }
+        }
+      }
+      if (mounted && nativeConsumer) {
+        try {
+          await configurePhone(result);
+        } catch (_) {
+          if (mounted) {
+            setState(() => error = 'Could not load phone trip settings.');
+          }
+        }
+      }
+      if (mounted && !widget.demo && !widget.institutional) {
+        await syncBankOnOpen(result);
+      }
     } catch (e) {
+      if (e is PlatformRequestError && e.status == 401 && !widget.demo) {
+        await signOut();
+        if (mounted && api == null) {
+          setState(
+            () => error = 'That pilot session is invalid or has expired.',
+          );
+        }
+        return;
+      }
       if (mounted) {
         setState(
           () => error =
@@ -150,14 +312,20 @@ class _PlatformHomeState extends State<PlatformHome> {
     }
   }
 
-  Future<void> act(String action, Map<String, dynamic> body) async {
+  Future<bool> act(String action, Map<String, dynamic> body) async {
     setState(() {
       busy = true;
       error = null;
     });
     try {
       final response = await api!.request(action, body);
-      if (!mounted) return;
+      if (!mounted) return false;
+      if (action == 'connection' &&
+          body['provider'] == 'transport' &&
+          body['enabled'] == false) {
+        await phone?.setConsent(false);
+      }
+      if (!mounted) return false;
       if (action == 'coach') {
         await showDialog<void>(
           context: context,
@@ -183,7 +351,7 @@ class _PlatformHomeState extends State<PlatformHome> {
             content: Text(switch (action) {
               'sync' when !widget.demo =>
                 '${response['added']} bank records updated, ${response['removed']} removed',
-              'sync' || 'import' =>
+              'sync' || 'import' || 'import-phone-trip' =>
                 '${response['added']} new records, ${response['duplicates']} duplicates skipped',
               'import-green-button' =>
                 '${response['added']} days ready for review, ${response['duplicates']} duplicates, ${response['incompleteDays']} incomplete days skipped',
@@ -193,10 +361,12 @@ class _PlatformHomeState extends State<PlatformHome> {
         );
         await refresh();
       }
+      return true;
     } catch (e) {
       if (mounted) {
         setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
       }
+      return false;
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -239,10 +409,10 @@ class _PlatformHomeState extends State<PlatformHome> {
   );
   Widget button(
     String text,
-    VoidCallback onTap, {
+    VoidCallback? onTap, {
     IconData icon = Icons.arrow_forward,
   }) => FilledButton.icon(
-    onPressed: busy ? null : onTap,
+    onPressed: busy || phoneBusy || pickingFile ? null : onTap,
     icon: Icon(icon, size: 18),
     label: Text(text),
   );
@@ -273,8 +443,14 @@ class _PlatformHomeState extends State<PlatformHome> {
         if (api != null)
           IconButton(
             tooltip: 'Refresh data',
-            onPressed: busy ? null : refresh,
+            onPressed: busy || phoneBusy || pickingFile ? null : refresh,
             icon: const Icon(Icons.refresh),
+          ),
+        if (api != null && !widget.demo)
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: busy || phoneBusy || pickingFile ? null : signOut,
+            icon: const Icon(Icons.logout),
           ),
         const SizedBox(width: 12),
       ],
@@ -298,6 +474,12 @@ class _PlatformHomeState extends State<PlatformHome> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 1160),
               child: ListView(
+                key: ValueKey(
+                  [
+                    data == null,
+                    widget.institutional ? institutionTab : tab,
+                  ].join('|'),
+                ),
                 padding: EdgeInsets.all(
                   MediaQuery.sizeOf(context).width < 600 ? 18 : 36,
                 ),
@@ -382,9 +564,7 @@ class _PlatformHomeState extends State<PlatformHome> {
           ? 'Understand your sustainability program'
           : 'Make lower-impact choices rewarding',
     ),
-    const Text(
-      'Sign in with a session issued by your Verdi pilot administrator. The live app starts empty.',
-    ),
+    const Text('Enter the session token from your Verdi pilot invitation.'),
     const SizedBox(height: 24),
     TextField(
       controller: tokenController,
@@ -392,11 +572,15 @@ class _PlatformHomeState extends State<PlatformHome> {
       decoration: const InputDecoration(labelText: 'Pilot session token'),
     ),
     const SizedBox(height: 20),
-    button('Sign in', () {
-      api?.dispose();
-      api = PlatformApi(tokenController.text.trim());
+    button('Sign in', () async {
+      final token = tokenController.text.trim();
+      if (token.isEmpty) {
+        setState(() => error = 'Enter your pilot session token.');
+        return;
+      }
+      api = PlatformApi(token);
       tokenController.clear();
-      refresh();
+      await refresh(remember: true);
     }),
   ];
 
@@ -426,6 +610,21 @@ class _PlatformHomeState extends State<PlatformHome> {
           color: ink,
         ),
       ),
+      if (!widget.demo &&
+          !(data!['connections'] as List).any((s) => s['connected'] == 1))
+        box(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Start with home electricity or travel.'),
+              button(
+                'Set up your sources',
+                () => setState(() => tab = 1),
+                icon: Icons.hub_outlined,
+              ),
+            ],
+          ),
+        ),
       const SizedBox(height: 16),
       const Text(
         'Connect your everyday activity. See where to act. Earn rewards when comparable evidence supports a reduction.',
@@ -496,6 +695,18 @@ class _PlatformHomeState extends State<PlatformHome> {
           ),
         ),
       ),
+      if (phone case final capture?)
+        ListenableBuilder(
+          listenable: capture,
+          builder: (context, _) => capture.pending.isEmpty
+              ? const SizedBox.shrink()
+              : TextButton(
+                  onPressed: () => setState(() => tab = 1),
+                  child: Text(
+                    'Review ${capture.pending.length} trips on this phone',
+                  ),
+                ),
+        ),
       title('Review new evidence (${pending.length})'),
       if (pending.isEmpty)
         const Text('You’re up to date. New imports will appear here.'),
@@ -567,6 +778,8 @@ class _PlatformHomeState extends State<PlatformHome> {
   }
 
   Future<void> importElectricity({required bool xml}) async {
+    if (busy || phoneBusy || pickingFile) return;
+    setState(() => pickingFile = true);
     try {
       final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -583,31 +796,185 @@ class _PlatformHomeState extends State<PlatformHome> {
       }
       final input = utf8.decode(bytes);
       if (xml) {
-        await act('import-green-button', {'xml': input});
+        if (!await enableUtility()) return;
+        if (!mounted) return;
+        if (await act('import-green-button', {'xml': input}) && mounted) {
+          setState(() => tab = 0);
+        }
         return;
       }
       final candidates = parseUtilityCsv(
         input,
         (data!['user'] as Map)['id'] as String,
       );
-      await act('import', {
-        'provider': 'utility',
-        'records': candidates
-            .map(
-              (c) => {
-                'id': c.id,
-                'day': c.start.toIso8601String().substring(0, 10),
-                'kind': 'electricity',
-                'quantity': c.quantity,
-                'description': 'Imported utility reading',
-              },
-            )
-            .toList(),
-      });
+      if (!await enableUtility() || !mounted) return;
+      if (await act('import', {
+            'provider': 'utility',
+            'records': candidates
+                .map(
+                  (c) => {
+                    'id': c.id,
+                    'day': c.start.toIso8601String().substring(0, 10),
+                    'kind': 'electricity',
+                    'quantity': c.quantity,
+                    'description': 'Imported utility reading',
+                  },
+                )
+                .toList(),
+          }) &&
+          mounted) {
+        setState(() => tab = 0);
+      }
     } catch (e) {
       if (mounted) setState(() => error = e.toString());
+    } finally {
+      if (mounted) setState(() => pickingFile = false);
     }
   }
+
+  Future<bool> enableUtility() async {
+    if (sourceEnabled(data!, 'utility')) return true;
+    return act('connection', {'provider': 'utility', 'enabled': true});
+  }
+
+  Future<void> withPhone(Future<void> Function() action) async {
+    if (phoneBusy || busy || pickingFile) return;
+    setState(() => phoneBusy = true);
+    try {
+      await action();
+    } catch (_) {
+      if (mounted) {
+        setState(() => error = 'Could not update phone trips. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => phoneBusy = false);
+    }
+  }
+
+  Future<void> sendPhoneTrip(
+    PilotPhoneCapture capture,
+    ActivityCandidate candidate,
+  ) async {
+    final mode = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('How did you travel?'),
+        children: [
+          for (final entry in const {
+            'car': 'Car',
+            'bus': 'Bus',
+            'train': 'Commuter rail',
+            'bicycle': 'Bicycle',
+          }.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(context, entry.key),
+              child: Text(entry.value),
+            ),
+        ],
+      ),
+    );
+    if (!mounted || mode == null) return;
+    final sent = await act('import-phone-trip', {
+      'id': candidate.id,
+      'day': candidate.start.toLocal().toIso8601String().substring(0, 10),
+      'kind': mode,
+      'quantity': candidate.quantity,
+    });
+    if (sent && mounted) {
+      await capture.remove(candidate.id);
+      if (mounted) setState(() => tab = 0);
+    }
+  }
+
+  Widget phoneSetup(
+    PilotPhoneCapture capture,
+    bool travelEnabled,
+  ) => ListenableBuilder(
+    listenable: capture,
+    builder: (context, _) => box(
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Phone trip detection',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
+          const Text(
+            'While Verdi is open, precise location estimates trip distance. '
+            'Routes stay in memory. You choose which trip summaries to send.',
+          ),
+          if (capture.storageError != null)
+            Text(capture.storageError!)
+          else if (capture.error != null && travelEnabled && capture.enabled)
+            Text(capture.error!)
+          else if (travelEnabled && capture.enabled)
+            Text(
+              capture.listening
+                  ? 'Detecting trips'
+                  : 'Detection resumes when Verdi opens',
+            ),
+          Wrap(
+            spacing: 12,
+            children: [
+              button(
+                travelEnabled && capture.enabled
+                    ? 'Turn off detection'
+                    : 'Enable trip detection',
+                phoneBusy
+                    ? null
+                    : () => withPhone(() async {
+                        if (!travelEnabled &&
+                            !await act('connection', {
+                              'provider': 'transport',
+                              'enabled': true,
+                            })) {
+                          return;
+                        }
+                        if (mounted) {
+                          await capture.setEnabled(
+                            !travelEnabled || !capture.enabled,
+                          );
+                        }
+                      }),
+                icon: Icons.location_on_outlined,
+              ),
+              if (travelEnabled && capture.enabled && capture.error != null)
+                TextButton(
+                  onPressed: busy || phoneBusy
+                      ? null
+                      : () => withPhone(() => capture.setEnabled(true)),
+                  child: const Text('Retry location'),
+                ),
+            ],
+          ),
+          for (final trip in capture.pending)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                '${(trip.quantity / 1.609344).toStringAsFixed(1)} mi detected',
+              ),
+              subtitle: Text(
+                MaterialLocalizations.of(context)
+                    .formatMediumDate(trip.start.toLocal()),
+              ),
+              leading: IconButton(
+                tooltip: 'Discard trip',
+                onPressed: busy || phoneBusy
+                    ? null
+                    : () => withPhone(() => capture.remove(trip.id)),
+                icon: const Icon(Icons.delete_outline),
+              ),
+              trailing: TextButton(
+                onPressed: busy || phoneBusy || !travelEnabled
+                    ? null
+                    : () => withPhone(() => sendPhoneTrip(capture, trip)),
+                child: const Text('Choose mode'),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 
   Future<void> logTrip() async {
     var mode = 'car';
@@ -632,7 +999,10 @@ class _PlatformHomeState extends State<PlatformHome> {
                     items: const [
                       DropdownMenuItem(value: 'car', child: Text('Car')),
                       DropdownMenuItem(value: 'bus', child: Text('Bus')),
-                      DropdownMenuItem(value: 'train', child: Text('Rail')),
+                      DropdownMenuItem(
+                        value: 'train',
+                        child: Text('Commuter rail'),
+                      ),
                       DropdownMenuItem(
                         value: 'bicycle',
                         child: Text('Bicycle'),
@@ -702,6 +1072,14 @@ class _PlatformHomeState extends State<PlatformHome> {
       ),
     );
     if (record != null && mounted) {
+      if (!sourceEnabled(data!, 'transport') &&
+          !await act('connection', {
+            'provider': 'transport',
+            'enabled': true,
+          })) {
+        return;
+      }
+      if (!mounted) return;
       await act('import', {
         'provider': 'transport',
         'records': [record],
@@ -711,23 +1089,42 @@ class _PlatformHomeState extends State<PlatformHome> {
 
   List<Widget> connections() {
     final sources = (data!['connections'] as List).cast<Map>();
-    final bankEnabled = sources.any(
-      (s) =>
-          s['provider'] == 'bank' &&
-          s['connected'] == 1 &&
-          s['mode'] != 'unavailable',
-    );
-    final utilityEnabled = sources.any(
-      (s) => s['provider'] == 'utility' && s['connected'] == 1,
-    );
-    final travelEnabled = sources.any(
-      (s) => s['provider'] == 'transport' && s['connected'] == 1,
-    );
+    final bankEnabled = bankSyncAvailable(data!);
+    final utilityEnabled = sourceEnabled(data!, 'utility');
+    final travelEnabled = sourceEnabled(data!, 'transport');
     final meterTimeZone = data!['meterTimeZone'];
     return [
-      title('Your connected world'),
+      title('Connections'),
+      if (!widget.demo) ...[
+        title('Home electricity'),
+        if (meterTimeZone != null) ...[
+          const Text(
+            'In myPSE, open My usage → Green Button. If XML is available, export one '
+            'electric meter. Verdi imports complete days in your meter time zone.',
+          ),
+          Text('Meter time zone · $meterTimeZone'),
+          button(
+            'Upload Green Button XML',
+            () => importElectricity(xml: true),
+            icon: Icons.upload_file,
+          ),
+        ],
+        const Text(
+          'You can also upload a CSV with record_id, date and kwh. Uploading '
+          'enables Home energy and queues readings for review. Upload again '
+          'when you have new readings.',
+        ),
+        button(
+          'Upload electricity CSV',
+          () => importElectricity(xml: false),
+          icon: Icons.upload_file,
+        ),
+        if (phone case final capture?) phoneSetup(capture, travelEnabled),
+        button('Log a trip', logTrip, icon: Icons.directions_transit),
+        title('Manage sources'),
+      ],
       const Text(
-        'You control each connection. Disconnecting stops new imports and keeps your confirmed history.',
+        'Disconnect a source to stop new imports and keep confirmed history.',
       ),
       const SizedBox(height: 18),
       ...sources.map(
@@ -738,7 +1135,7 @@ class _PlatformHomeState extends State<PlatformHome> {
               {
                 'bank': 'Bank transactions',
                 'utility': 'Home energy',
-                'transport': 'Travel receipts',
+                'transport': 'Travel',
                 'iot': 'Smart devices',
               }[e['provider']]!,
             ),
@@ -746,8 +1143,9 @@ class _PlatformHomeState extends State<PlatformHome> {
               widget.demo
                   ? 'Fictional provider · SQLite demo records'
                   : switch (e['mode']) {
-                      'plaid-production' => 'Plaid · authorized pilot account',
-                      'plaid-sandbox' => 'Plaid Sandbox · test transactions',
+                      'plaid-production' => 'Plaid · syncs when you open Verdi',
+                      'plaid-sandbox' =>
+                        'Plaid Sandbox · syncs test transactions on open',
                       'file-import' => 'Upload a utility export',
                       'manual' =>
                         'Log trips using your travel mode and distance',
@@ -757,7 +1155,9 @@ class _PlatformHomeState extends State<PlatformHome> {
             ),
             value: e['connected'] == 1,
             onChanged:
-                busy || (e['mode'] == 'unavailable' && e['connected'] != 1)
+                busy ||
+                    phoneBusy ||
+                    (e['mode'] == 'unavailable' && e['connected'] != 1)
                 ? null
                 : (v) => act('connection', {
                     'provider': e['provider'],
@@ -772,34 +1172,12 @@ class _PlatformHomeState extends State<PlatformHome> {
           () => act('sync', {}),
           icon: Icons.sync,
         ),
-      if (!widget.demo && travelEnabled)
-        button('Log a trip', logTrip, icon: Icons.directions_transit),
-      title('Import your electricity readings'),
-      const Text(
-        'Use a CSV with record_id, date and kwh. Review the readings before they enter your footprint.',
-      ),
-      const SizedBox(height: 16),
-      if (utilityEnabled)
+      if (widget.demo && utilityEnabled)
         button(
           'Choose electricity CSV',
           () => importElectricity(xml: false),
           icon: Icons.upload_file,
-        )
-      else
-        const Text('Enable Home energy to upload readings.'),
-      if (!widget.demo && meterTimeZone != null) ...[
-        const SizedBox(height: 16),
-        const Text(
-          'For Puget Sound Energy, open My usage → Green Button, choose a range of days, and export XML for one electric meter. Verdi imports complete days only.',
         ),
-        Text('Meter time zone · $meterTimeZone'),
-        if (utilityEnabled)
-          button(
-            'Choose Green Button XML',
-            () => importElectricity(xml: true),
-            icon: Icons.upload_file,
-          ),
-      ],
     ];
   }
 

@@ -37,18 +37,19 @@ For Android emulator development use `--dart-define=VERDI_API=http://10.0.2.2:87
 ## Run an empty live pilot
 
 ```sh
-python3 backend/provision.py --db /tmp/verdi-live.sqlite --config /tmp/verdi-private.json --user pilot-1 --name 'Pilot User' --org pilot-org
+python3 backend/provision.py --db /tmp/verdi-live.sqlite --config /tmp/verdi-private.json --user pilot-1 --name 'Pilot User' --org pilot-org --region redmond
 python3 backend/platform.py --db /tmp/verdi-live.sqlite --config /tmp/verdi-private.json
 flutter run -t lib/main.dart --dart-define=VERDI_API=http://127.0.0.1:8787
 ```
 
-The administrator finds the newly issued bearer session in the private config and gives it to the intended pilot user. Enter it at sign-in. Sessions stay in memory in the app. Provision an analyst with `--role analyst` in the same organization. Restart the server after provisioning. This is simple administrator-provisioned pilot authentication, not consumer account signup, OIDC, credential recovery, or a production authorization service.
+The administrator shares the token from the private config with the intended pilot user. Restart the backend after provisioning. On Android and iOS, a successful consumer sign-in is remembered in device secure storage until sign-out or session rejection. Web and institution tokens stay in memory. A reachable HTTPS backend is required for distribution.
 
-Enable Home energy, then import a CSV with `record_id,date,kwh`. For Green Button XML, provision the account with `--meter-timezone` using the meter's IANA time zone. For a Redmond meter, `--region redmond` selects Pacific time and the Northwest grid factor. For Washington meters outside Redmond, verify the provider and ZIP with [EPA Power Profiler](https://www.epa.gov/egrid/power-profiler) before choosing `--region nwpp`; the default is the national fallback.
+- **Electricity.** Start from **Today → Set up your sources → Connections**. Upload a CSV with `record_id,date,kwh`, or use a Green Button XML file if myPSE offers one for your electric meter. In myPSE, open **My usage → Green Button** to choose the range and format. The first upload enables Home energy. Review the new records in **Today**. Verdi imports complete XML days in the meter time zone and skips identical replays. Use one whole-home electricity meter per pilot account. Return to Connections when you have new data. [PSE export instructions](https://www.pse.com/en/account-and-billing/time-of-use/tou-faq)
+- **Meter setup.** `--region redmond` selects Pacific time for meter exports and the NWPP electricity factor. For other meter locations, verify the utility and ZIP before selecting the factor region and meter time zone. Reconcile an owner-authorized export with its matching bill before relying on imported totals. [EPA Power Profiler](https://www.epa.gov/egrid/power-profiler)
+- **Travel.** In the mobile app choose **Enable trip detection** once and allow precise location while using Verdi. Detection resumes while Verdi is open after the app verifies your session and travel connection. GPS coordinates stay in memory. Verdi saves estimated distances on the phone, then you choose the mode and send each summary to the review queue. Turn detection off in Connections or disconnect Travel to pause collection. On any platform, **Log a trip** accepts a known mode and distance. Phone and manual estimates are ineligible for reward coverage. Use the commuter rail factor for commuter rail trips.
+- **Banking.** An administrator can provision a consented Plaid account. Enabling the bank source syncs it when you open Verdi. **Sync bank transactions** retries on demand. Self-serve Link authorization and scheduled sync while the app is closed are outside this pilot.
 
-In myPSE, open **My usage → Green Button**, choose a date range for one electric meter and export XML. Under **Connections**, enable **Home energy** and choose **Green Button XML**. Complete local days enter review. Replays skip duplicates, and the server rejects overlap with active CSV evidence for the same day. Use one whole-home electricity meter per pilot account. Choose a shorter export period if the file exceeds 5 MB. [PSE export instructions](https://www.pse.com/en/account-and-billing/time-of-use/tou-faq)
-
-Enable **Travel receipts** and use **Log a trip** with your mode and distance. Self-reported trips enter review and contribute to activity estimates after confirmation. They cannot satisfy reward coverage. IoT submeter readings remain supporting evidence. Native phone/GPS upload and provider transit feeds are outside this pilot.
+Live PSE account sync, ORCA imports, and natural gas, water and waste accounting remain open. The pilot accepts travel and electricity evidence and keeps IoT submeter readings as supporting evidence. Phone capture pauses when the app goes into the background. Physical-device accuracy and battery behavior still need field validation.
 
 ## Algorithms and accounting
 

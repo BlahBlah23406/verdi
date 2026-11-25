@@ -38,7 +38,11 @@ final class VerdiLocationStream: NSObject, FlutterStreamHandler, CLLocationManag
   deinit { NotificationCenter.default.removeObserver(self); manager.stopUpdatingLocation() }
   func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
     sink = events
-    if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
+    if manager.authorizationStatus == .notDetermined {
+      if arguments as? Bool == false {
+        fail("permission", "Allow precise location to start trip detection.")
+      } else { manager.requestWhenInUseAuthorization() }
+    }
     else { updateAuthorization() }
     return nil
   }
@@ -62,7 +66,7 @@ final class VerdiLocationStream: NSObject, FlutterStreamHandler, CLLocationManag
     manager.stopUpdatingLocation()
     sink?(FlutterError(code: code, message: message, details: nil))
   }
-  @objc private func backgrounded() { fail("paused", "App left the foreground. Re-enable tracking when you return.") }
+  @objc private func backgrounded() { fail("paused", "App left the foreground.") }
   func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
     for location in locations {
       guard location.horizontalAccuracy >= 0 else { continue }
