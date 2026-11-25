@@ -145,6 +145,33 @@ void main() {
     () => parseUtilityCsv('record_id,date,kwh\nr,2099-01-01,1', 'Home'),
     'Future reading rejected',
   );
+  rejects(
+    () => parseUtilityCsv('record_id,date,kwh\nr,1850-01-01,1', 'Home'),
+    'Implausible historical date rejected',
+  );
+  rejects(
+    () => ActivityCandidate.fromJson({
+      'id': '   ',
+      'source': 'utility-csv',
+      'start': base.toIso8601String(),
+      'end': base.add(const Duration(days: 1)).toIso8601String(),
+      'quantity': 1,
+      'description': 'bad',
+      'kind': 'electricity',
+    }),
+    'Whitespace candidate ID rejected',
+  );
+  final pointActivity = Activity(
+    id: 'point',
+    kind: ActivityKind.car,
+    quantity: 1,
+    date: base,
+    endDate: base,
+  );
+  check(
+    overlaps(trip, pointActivity),
+    'Zero-duration endDate still detects overlap at start instant',
+  );
   check(
     parseUtilityCsv(
           '\uFEFFrecord_id,date,kwh\r\nr,2026-01-01,1\r\n',

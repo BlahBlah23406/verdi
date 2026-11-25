@@ -12,6 +12,29 @@ import 'package:verdi/main.dart';
 import '../tool/check_automation.dart' as checks;
 
 void main() {
+  testWidgets(
+    'connection directory returns to the existing electricity import',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final prefs = await SharedPreferences.getInstance();
+      await tester.pumpWidget(VerdiApp(store: ActivityStore(prefs)));
+      await tester.tap(find.text('Auto track'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Browse connections'));
+      await tester.pumpAndSettle();
+      expect(find.text('Build a fuller picture.'), findsOneWidget);
+      await tester.ensureVisible(find.text('PSE electricity'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('PSE electricity'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Go to electricity import'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Go to electricity import'));
+      await tester.pumpAndSettle();
+      expect(find.text('Choose utility CSV').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
   test(
     'trip detection, utility parsing and reconciliation reference cases',
     checks.main,
@@ -48,7 +71,7 @@ void main() {
     await tester.tap(find.text('Auto track'));
     await tester.pumpAndSettle();
     await tester.scrollUntilVisible(
-      find.text('Confirm activity'),
+      find.text('Confirm activity').hitTestable(),
       300,
       scrollable: find
           .descendant(

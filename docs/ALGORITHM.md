@@ -4,6 +4,8 @@ Documents emission formulas, factor sources, calculation boundaries, and remaini
 
 The pilot covers commuting and home electricity. New entries use a pinned, source-backed catalog. This is a first implementation against published tables, not independent scientific validation or certification.
 
+For the proposed Redmond-first expansion, see [connection verification](CONNECTIONS_WASHINGTON.md) and the [personal footprint accounting plan](FOOTPRINT_ACCOUNTING_PLAN.md). The experimental `footprint_ledger.dart` is a separate reconciliation prototype with tests; the app still uses the pilot engine described below. It does not yet calculate a complete personal footprint or introduce new production factors.
+
 ## Reference and conversion
 
 Source: [EPA January 2025 Emission Factors Hub](https://www.epa.gov/system/files/documents/2025-01/ghg-emission-factors-hub-2025.pdf), retrieved October 23, 2026. Version: `us-epa-2025-v1`.

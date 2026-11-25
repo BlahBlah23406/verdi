@@ -9,9 +9,14 @@ import 'package:flutter/services.dart';
 
 import '../data/activity_store.dart';
 import '../data/automation_store.dart';
+import '../data/evidence_archive_store.dart';
+import '../data/utility_review_store.dart';
 import '../domain/automation.dart';
 import '../domain/carbon.dart';
 import '../services/phone_tracking.dart';
+import 'connections_screen.dart';
+import 'evidence_archive_screen.dart';
+import 'utility_review_screen.dart';
 
 class AutomationScreen extends StatefulWidget {
   const AutomationScreen({
@@ -28,8 +33,13 @@ class AutomationScreen extends StatefulWidget {
 class _AutomationScreenState extends State<AutomationScreen>
     with WidgetsBindingObserver {
   late final AutomationStore store;
+  // One instance per preferences key so archive writes share a queue.
+  late final archiveStore = EvidenceArchiveStore(widget.activities.preferences);
+  late final reviewStore = UtilityReviewStore(widget.activities.preferences);
   final detector = TripDetector();
   final account = TextEditingController();
+  final scroll = ScrollController();
+  final utilitySection = GlobalKey();
   final selections = <String, ActivityKind>{};
   List<ActivityCandidate> pending = [];
   Set<String> dismissed = {};
@@ -72,8 +82,60 @@ class _AutomationScreenState extends State<AutomationScreen>
     WidgetsBinding.instance.removeObserver(this);
     unawaited(subscription?.cancel());
     account.dispose();
+    scroll.dispose();
     super.dispose();
   }
+
+  Future<void> browseConnections() async {
+    final action = await Navigator.of(context).push<ConnectionsAction>(
+      MaterialPageRoute(builder: (_) => const ConnectionsScreen()),
+    );
+    if (!mounted || action == null) return;
+    if (action == ConnectionsAction.electricityReview) {
+      await reviewIntoArchive();
+      return;
+    }
+    // Bring the existing import into view even when ListView has not built it yet.
+    scroll.jumpTo(0);
+    await WidgetsBinding.instance.endOfFrame;
+    while (mounted &&
+        utilitySection.currentContext == null &&
+        scroll.hasClients &&
+        scroll.position.pixels < scroll.position.maxScrollExtent) {
+      scroll.jumpTo(
+        (scroll.position.pixels + 300).clamp(
+          0,
+          scroll.position.maxScrollExtent,
+        ),
+      );
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    final target = utilitySection.currentContext;
+    if (mounted && target != null && target.mounted) {
+      await Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 250),
+      );
+    }
+  }
+
+  Future<void> reviewIntoArchive() => Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => UtilityReviewScreen(
+        archive: archiveStore,
+        reviews: reviewStore,
+        journalIds: () {
+          final ids = pending.map((c) => c.id).toSet();
+          try {
+            ids.addAll(widget.activities.load().map((a) => a.id));
+          } catch (_) {
+            // An unreadable journal only hides the overlap notice.
+          }
+          return ids;
+        },
+      ),
+    ),
+  );
 
   void message(String text) {
     if (mounted) {
@@ -252,6 +314,7 @@ class _AutomationScreenState extends State<AutomationScreen>
       );
     }
     return ListView(
+      controller: scroll,
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
       children: [
         const Text(
@@ -263,6 +326,21 @@ class _AutomationScreenState extends State<AutomationScreen>
           'Detect journeys from your phone and import electricity readings. Review what we find before it changes your footprint.',
         ),
         const SizedBox(height: 24),
+        OutlinedButton.icon(
+          onPressed: browseConnections,
+          icon: const Icon(Icons.hub_outlined),
+          label: const Text('Browse connections'),
+        ),
+        TextButton.icon(
+          onPressed: () => Navigator.of(context).push<void>(
+            MaterialPageRoute(
+              builder: (_) => EvidenceArchiveScreen(store: archiveStore),
+            ),
+          ),
+          icon: const Icon(Icons.history),
+          label: const Text('Inspect evidence history'),
+        ),
+        const SizedBox(height: 12),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(20),
@@ -297,6 +375,7 @@ class _AutomationScreenState extends State<AutomationScreen>
         ),
         const SizedBox(height: 12),
         Card(
+          key: utilitySection,
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -326,6 +405,17 @@ class _AutomationScreenState extends State<AutomationScreen>
                   onPressed: busy || saveFailed ? null : importUtility,
                   icon: const Icon(Icons.upload_file),
                   label: const Text('Choose utility CSV'),
+                ),
+                const SizedBox(height: 16),
+                const Divider(),
+                const Text(
+                  'Experimental: review readings into the evidence archive with an explicit meter, time zone, factor and share. The archive is separate from your journal and dashboard; it does not add these readings to either.',
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: reviewIntoArchive,
+                  icon: const Icon(Icons.fact_check_outlined),
+                  label: const Text('Review into evidence archive'),
                 ),
               ],
             ),
@@ -390,6 +480,7 @@ class _AutomationScreenState extends State<AutomationScreen>
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 child: DropdownButtonFormField<ActivityKind>(
+                  isExpanded: true,
                   key: ValueKey(c.id),
                   initialValue: selected,
                   decoration: const InputDecoration(

@@ -50,11 +50,15 @@ class Activity {
                  ? kind.reference?.toJson() ?? {}
                  : {}),
        ) {
-    if (id.isEmpty ||
+    if (id.trim().isEmpty ||
+        source.trim().isEmpty ||
+        (sourceId != null && sourceId!.trim().isEmpty) ||
+        (endDate != null && endDate!.isBefore(date)) ||
         !quantity.isFinite ||
         quantity <= 0 ||
         !this.factor.isFinite ||
-        this.factor < 0) {
+        this.factor < 0 ||
+        !emissions.isFinite) {
       throw ArgumentError(
         'Activity requires an ID and valid positive quantity.',
       );
@@ -119,16 +123,21 @@ class CarbonEngine {
         .toList();
   }
 
-  double total(Iterable<Activity> activities) =>
-      activities.fold(0, (sum, a) => sum + a.emissions);
+  double total(Iterable<Activity> activities) {
+    var sum = 0.0;
+    for (final a in activities) {
+      sum += a.emissions;
+      if (!sum.isFinite) throw StateError('Aggregate emissions overflow.');
+    }
+    return sum;
+  }
+
   Map<String, double> breakdown(Iterable<Activity> activities) {
     final result = <String, double>{};
     for (final a in activities) {
-      result.update(
-        a.kind.category,
-        (v) => v + a.emissions,
-        ifAbsent: () => a.emissions,
-      );
+      final next = (result[a.kind.category] ?? 0) + a.emissions;
+      if (!next.isFinite) throw StateError('Aggregate emissions overflow.');
+      result[a.kind.category] = next;
     }
     return result;
   }
@@ -137,12 +146,16 @@ class CarbonEngine {
     if (!km.isFinite || km < 0 || alternative.category != 'Travel') {
       throw ArgumentError('Use a valid distance and travel alternative.');
     }
-    return km * (ActivityKind.car.factor - alternative.factor);
+    final saving = km * (ActivityKind.car.factor - alternative.factor);
+    if (!saving.isFinite) throw ArgumentError('Travel saving overflow.');
+    return saving;
   }
 
   // Preview only. No reward balance is issued from unverified activity logs.
   int previewPoints(double saving) {
-    if (!saving.isFinite || saving < 0) throw ArgumentError('Invalid saving.');
+    if (!saving.isFinite || saving < 0 || !(saving * 10).isFinite) {
+      throw ArgumentError('Invalid saving.');
+    }
     return (saving * 10).floor();
   }
 }

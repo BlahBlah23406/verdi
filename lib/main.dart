@@ -485,6 +485,7 @@ class _HomeState extends State<Home> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<ActivityKind>(
+                  isExpanded: true,
                   initialValue: alternative,
                   decoration: const InputDecoration(
                     labelText: 'Try this instead',
@@ -582,6 +583,7 @@ class _ActivityFormState extends State<ActivityForm> {
           ),
           const SizedBox(height: 24),
           DropdownButtonFormField<ActivityKind>(
+            isExpanded: true,
             initialValue: kind,
             decoration: const InputDecoration(labelText: 'Activity'),
             items: ActivityKind.supported

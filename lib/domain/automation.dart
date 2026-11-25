@@ -80,7 +80,9 @@ class ActivityCandidate {
           ? null
           : ActivityKind.values.byName(j['kind'] as String),
     );
-    if (!result.quantity.isFinite ||
+    if (result.id.trim().isEmpty ||
+        result.source.trim().isEmpty ||
+        !result.quantity.isFinite ||
         result.quantity <= 0 ||
         result.end.isBefore(result.start)) {
       throw const FormatException('Invalid saved candidate.');
@@ -199,13 +201,18 @@ List<ActivityCandidate> parseUtilityCsv(String input, String account) {
     }
     final date = DateTime.tryParse(cells[1]);
     final value = double.tryParse(cells[2]);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
     if (date == null ||
-        date.toIso8601String().substring(0, 10) != cells[1] ||
+        date.year != int.parse(cells[1].substring(0, 4)) ||
+        date.month != int.parse(cells[1].substring(5, 7)) ||
+        date.day != int.parse(cells[1].substring(8, 10)) ||
+        date.isBefore(DateTime(1900)) ||
         value == null ||
         !value.isFinite ||
         value <= 0 ||
         value > 1000000 ||
-        date.isAfter(DateTime.now())) {
+        date.isAfter(today)) {
       throw FormatException('Invalid date or kWh on row ${i + 1}.');
     }
     final id =
@@ -234,6 +241,9 @@ bool overlaps(ActivityCandidate candidate, Activity activity) {
       ? activity.kind == ActivityKind.electricity
       : activity.kind.category == 'Travel';
   if (!sameCategory) return false;
-  final end = activity.endDate ?? activity.date.add(const Duration(seconds: 1));
+  final rawEnd = activity.endDate;
+  final end = rawEnd != null && rawEnd.isAfter(activity.date)
+      ? rawEnd
+      : activity.date.add(const Duration(seconds: 1));
   return candidate.start.isBefore(end) && activity.date.isBefore(candidate.end);
 }

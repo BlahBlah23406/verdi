@@ -119,5 +119,30 @@ void main() {
   } on UnsupportedError {
     checks++;
   }
+  rejects(
+    () => Activity(id: ' ', kind: ActivityKind.car, quantity: 1, date: start),
+    'Whitespace-only ID rejected',
+  );
+  rejects(
+    () => Activity(
+      id: 'a',
+      kind: ActivityKind.car,
+      quantity: 1,
+      date: end,
+      endDate: start,
+    ),
+    'Reversed activity interval rejected',
+  );
+  rejects(
+    () => Activity(
+      id: 'a',
+      kind: ActivityKind.car,
+      quantity: 1e308,
+      date: start,
+      factor: 1e308,
+    ),
+    'Overflowing activity emissions rejected',
+  );
+  rejects(() => engine.previewPoints(1e308), 'Overflowing reward points rejected');
   stdout.writeln('$checks algorithm checks passed.');
 }

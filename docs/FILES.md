@@ -30,6 +30,8 @@ Code and commentable configuration files also contain a short overview. JSON, CS
 | [android/gradle/wrapper/gradle-wrapper.properties](../android/gradle/wrapper/gradle-wrapper.properties) | Pins the Gradle distribution used by the Android wrapper. |
 | [android/settings.gradle.kts](../android/settings.gradle.kts) | Locates the Flutter SDK and declares Android build plugins and modules. |
 | [docs/ALGORITHM.md](../docs/ALGORITHM.md) | Documents emission formulas, factor sources, calculation boundaries, and remaining validation. |
+| [docs/CONNECTIONS_WASHINGTON.md](../docs/CONNECTIONS_WASHINGTON.md) | Evaluates useful personal-data connections, access and validation gates from Redmond through Washington. |
+| [docs/FOOTPRINT_ACCOUNTING_PLAN.md](../docs/FOOTPRINT_ACCOUNTING_PLAN.md) | Defines the proposed full-footprint accounting policy, ML role, reconciliation, uncertainty and rollout. |
 | [docs/AUTOMATIC_TRACKING.md](../docs/AUTOMATIC_TRACKING.md) | Explains automatic ingestion, consent, reconciliation, and required device acceptance checks. |
 | [docs/FILES.md](../docs/FILES.md) | Provides a short purpose statement for every tracked project file, including non-commentable assets. |
 | [docs/ROADMAP.md](../docs/ROADMAP.md) | Maps the business plan to implemented foundations and future product milestones. |
@@ -80,6 +82,13 @@ Code and commentable configuration files also contain a short overview. JSON, CS
 | [lib/domain/automation.dart](../lib/domain/automation.dart) | Segments location samples into trips, parses utility readings, and checks activity overlap. |
 | [lib/domain/carbon.dart](../lib/domain/carbon.dart) | Defines activity records and calculates period totals, category breakdowns, and travel comparisons. |
 | [lib/domain/emission_factors.dart](../lib/domain/emission_factors.dart) | Defines the versioned EPA emission factors, unit conversions, and source metadata. |
+| [lib/domain/footprint_ledger.dart](../lib/domain/footprint_ledger.dart) | Experimental reconciliation of explicitly matched evidence with unit checks, accounting bases and gap reporting. |
+| [lib/domain/connection_catalog.dart](../lib/domain/connection_catalog.dart) | Describes staged Washington connection routes and their readiness. |
+| [lib/domain/evidence_archive.dart](../lib/domain/evidence_archive.dart) | Retains immutable evidence and relationship revisions and reconciles reviewed matches/containment. |
+| [lib/domain/utility_evidence_adapter.dart](../lib/domain/utility_evidence_adapter.dart) | Experimental pure adapter from explicitly reviewed normalized utility readings into archive revisions. |
+| [lib/data/evidence_archive_store.dart](../lib/data/evidence_archive_store.dart) | Persists the experimental evidence archive separately from activities. |
+| [lib/features/connections_screen.dart](../lib/features/connections_screen.dart) | Shows regional source readiness and routes users to electricity import. |
+| [lib/features/evidence_archive_screen.dart](../lib/features/evidence_archive_screen.dart) | Inspects monthly reconciliation, source revisions and relationship history without modifying records. |
 | [lib/features/automation_screen.dart](../lib/features/automation_screen.dart) | Presents tracking consent, utility imports, and the candidate review queue. |
 | [lib/main.dart](../lib/main.dart) | Starts the Flutter app and builds the overview, journal, comparison, and tracking navigation. |
 | [lib/services/phone_tracking.dart](../lib/services/phone_tracking.dart) | Converts native location events into typed Dart location samples. |
@@ -87,9 +96,15 @@ Code and commentable configuration files also contain a short overview. JSON, CS
 | [pubspec.yaml](../pubspec.yaml) | Declares the Flutter app, SDK constraints, dependencies, and bundled resources. |
 | [test/automation_test.dart](../test/automation_test.dart) | Checks automatic ingestion, review-queue persistence, and confirmation into the activity journal. |
 | [test/carbon_test.dart](../test/carbon_test.dart) | Checks emissions calculations, historical factors, reporting periods, and activity persistence. |
+| [test/footprint_ledger_test.dart](../test/footprint_ledger_test.dart) | Tests reconciliation, replay, conflicts, missing factors, allocation and incompatible accounting bases. |
+| [test/evidence_archive_test.dart](../test/evidence_archive_test.dart) | Checks archive revisions, storage, reviewed matching and conservative containment. |
+| [test/utility_evidence_adapter_test.dart](../test/utility_evidence_adapter_test.dart) | Checks adapter identity, UTC intervals, factor checks, replay, corrections, withdrawals and reports. |
+| [test/connections_screen_test.dart](../test/connections_screen_test.dart) | Checks regional connection details, navigation and mobile layout. |
+| [test/evidence_archive_screen_test.dart](../test/evidence_archive_screen_test.dart) | Checks read-only inspection, correction history, reporting months, corrupt data and accessible phone layout. |
 | [test/widget_test.dart](../test/widget_test.dart) | Checks the main activity flow and small-screen Flutter layouts. |
 | [tool/check_algorithm.dart](../tool/check_algorithm.dart) | Runs standalone calculation checks without the Flutter test runner. |
 | [tool/check_automation.dart](../tool/check_automation.dart) | Runs standalone trip-detection, import-validation, and reconciliation checks. |
+| [tool/preview_footprint.dart](../tool/preview_footprint.dart) | Prints a clearly synthetic meter/payment reconciliation using the existing EPA national fallback. |
 | [web/favicon.png](../web/favicon.png) | Provides the browser tab icon. |
 | [web/icons/Icon-192.png](../web/icons/Icon-192.png) | Provides a web app icon at the size indicated by its filename. |
 | [web/icons/Icon-512.png](../web/icons/Icon-512.png) | Provides a web app icon at the size indicated by its filename. |
@@ -97,3 +112,14 @@ Code and commentable configuration files also contain a short overview. JSON, CS
 | [web/icons/Icon-maskable-512.png](../web/icons/Icon-maskable-512.png) | Provides a web app icon with maskable padding at the size indicated by its filename. |
 | [web/index.html](../web/index.html) | Bootstraps Flutter in the browser and declares page metadata. |
 | [web/manifest.json](../web/manifest.json) | Defines the web app name, display behavior, theme, and installable icons. |
+
+## Reviewed electricity flow
+
+- `lib/domain/service_zone.dart`: narrow Pacific service-day resolution with DST.
+- `lib/domain/utility_review.dart`: explicit review choices, meter identities, batch receipts and import plans.
+- `lib/data/utility_review_service.dart`: coordinates guarded preview saves.
+- `lib/data/utility_review_store.dart`: durable local meter registry and legacy review records.
+- `lib/features/utility_review_screen.dart`: normalized CSV, review, preview, correction and save UI.
+- `test/service_zone_test.dart`, `test/utility_review_test.dart`, `test/utility_review_screen_test.dart`: service intervals, persistence and user-flow regression checks.
+- `tool/check_utility_review.dart`: independent full-month arithmetic/replay/correction checks without Flutter sockets.
+- `docs/CORE_ACCEPTANCE.md`: supported product claims and real-household pilot gates.

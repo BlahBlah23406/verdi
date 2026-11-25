@@ -42,6 +42,56 @@ void main() {
       ),
       throwsArgumentError,
     );
+    for (final invalid in <void Function()>[
+      () => entry('   ', DateTime(2026)),
+      () => Activity(
+        id: 'a',
+        kind: ActivityKind.car,
+        quantity: 1,
+        date: DateTime(2026),
+        source: '  ',
+      ),
+      () => Activity(
+        id: 'a',
+        kind: ActivityKind.car,
+        quantity: 1,
+        date: DateTime(2026),
+        sourceId: ' ',
+      ),
+      () => Activity(
+        id: 'a',
+        kind: ActivityKind.car,
+        quantity: 1,
+        date: DateTime(2026, 10, 5),
+        endDate: DateTime(2026, 10, 4),
+      ),
+      () => Activity(
+        id: 'a',
+        kind: ActivityKind.car,
+        quantity: 1e308,
+        date: DateTime(2026),
+        factor: 1e308,
+      ),
+      () => engine.previewPoints(1e308),
+    ]) {
+      expect(invalid, throwsArgumentError);
+    }
+    final hugeA = Activity(
+      id: 'h1',
+      kind: ActivityKind.car,
+      quantity: 1e308,
+      date: DateTime(2026),
+      factor: 1,
+    );
+    final hugeB = Activity(
+      id: 'h2',
+      kind: ActivityKind.car,
+      quantity: 1e308,
+      date: DateTime(2026),
+      factor: 1,
+    );
+    expect(() => engine.total([hugeA, hugeB]), throwsStateError);
+    expect(() => engine.breakdown([hugeA, hugeB]), throwsStateError);
   });
   test('monthly windows exclude other months and duplicate IDs', () {
     final start = DateTime(2026, 10);
