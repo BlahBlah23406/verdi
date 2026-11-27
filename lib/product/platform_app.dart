@@ -42,7 +42,7 @@ class PlatformApi {
   ]) async {
     final uri = Uri.parse('$base/api/$path');
     final headers = {
-      'Authorization': 'Bearer $token',
+      if (token.isNotEmpty) 'Authorization': 'Bearer $token',
       'Content-Type': 'application/json',
     };
     final response =
@@ -140,7 +140,16 @@ class _PlatformHomeState extends State<PlatformHome> {
   PilotPhoneCapture? phone;
   bool phoneBusy = false;
   Timer? demoPoll;
-  bool demoReading = false;
+  int? demoReadingEpoch;
+  int sessionEpoch = 0;
+  PlatformApi? demoCatalogApi;
+  List<Map<String, dynamic>> demoHouseholds = const [];
+  String? selectedHouseholdId;
+  bool switchingHousehold = false;
+  final Set<String> selectedDemoSources = <String>{};
+
+  String? get _redmondBase =>
+      widget.redmondDemo && kIsWeb ? Uri.base.origin : null;
 
   bool get nativeConsumer =>
       !widget.demo &&
@@ -168,6 +177,7 @@ class _PlatformHomeState extends State<PlatformHome> {
   }
 
   Future<void> signOut() async {
+    sessionEpoch++;
     setState(() => busy = true);
     try {
       if (nativeConsumer) await secureStorage.delete(key: sessionKey);
@@ -219,20 +229,18 @@ class _PlatformHomeState extends State<PlatformHome> {
   void initState() {
     super.initState();
     if (widget.demo) {
-      api = PlatformApi(
-        widget.redmondDemo
-            ? 'verdi-redmond-demo'
-            : (widget.institutional
-                  ? 'verdi-demo-analyst'
-                  : 'verdi-demo-consumer'),
-        base: widget.redmondDemo && kIsWeb ? Uri.base.origin : null,
-      );
-      refresh();
       if (widget.redmondDemo) {
+        demoCatalogApi = PlatformApi('', base: _redmondBase);
+        unawaited(_initRedmondDemo());
         demoPoll = Timer.periodic(
           const Duration(seconds: 2),
           (_) => pollDemo(),
         );
+      } else {
+        api = PlatformApi(
+          widget.institutional ? 'verdi-demo-analyst' : 'verdi-demo-consumer',
+        );
+        refresh();
       }
     } else if (nativeConsumer) {
       unawaited(restoreSession());
@@ -241,69 +249,230 @@ class _PlatformHomeState extends State<PlatformHome> {
 
   @override
   void dispose() {
+    sessionEpoch++;
     demoPoll?.cancel();
     phone?.dispose();
     api?.dispose();
+    demoCatalogApi?.dispose();
     tokenController.dispose();
     super.dispose();
   }
 
-  Future<void> pollDemo() async {
-    if (busy || demoReading || data == null) return;
-    final before = data;
-    demoReading = true;
+  Future<void> _initRedmondDemo() async {
+    unawaited(_loadDemoHouseholds());
+    await switchDemoHousehold(null, force: true);
+  }
+
+  Future<void> _loadDemoHouseholds() async {
+    final catalogApi = demoCatalogApi;
+    if (catalogApi == null) return;
     try {
-      final latest = await api!.request('me');
-      if (mounted && !busy && identical(before, data)) {
-        setState(() => data = latest);
+      final response = await catalogApi.request('demo/households');
+      if (!mounted) return;
+      final raw = response['households'];
+      if (raw is List) {
+        final parsed = raw
+            .whereType<Map>()
+            .map((entry) => Map<String, dynamic>.from(entry))
+            .where((entry) => entry['id'] is String)
+            .toList();
+        if (parsed.isNotEmpty) {
+          setState(() => demoHouseholds = parsed);
+        }
+      }
+    } catch (_) {
+      // Keep working with the active household snapshot if catalog is unavailable.
+    }
+  }
+
+  Future<void> switchDemoHousehold(
+    String? householdId, {
+    bool force = false,
+  }) async {
+    if (!widget.redmondDemo) return;
+    if (householdId != null &&
+        !force &&
+        householdId == selectedHouseholdId &&
+        data != null &&
+        api != null &&
+        error == null) {
+      return;
+    }
+    final catalogApi = demoCatalogApi ??= PlatformApi('', base: _redmondBase);
+    final epoch = ++sessionEpoch;
+    final oldApi = api;
+    setState(() {
+      api = null;
+      data = null;
+      error = null;
+      busy = true;
+      switchingHousehold = true;
+      selectedDemoSources.clear();
+      if (householdId != null) {
+        selectedHouseholdId = householdId;
+      }
+    });
+    oldApi?.dispose();
+
+    PlatformApi? nextApi;
+    try {
+      final sessionPath = householdId == null
+          ? 'demo/session'
+          : 'demo/session?household=${Uri.encodeQueryComponent(householdId)}';
+      String token;
+      try {
+        final session = await catalogApi.request(sessionPath);
+        final rawToken = session['token'];
+        if (rawToken is! String || rawToken.isEmpty) {
+          throw StateError('The API returned an invalid demo session.');
+        }
+        token = rawToken;
+      } on PlatformRequestError catch (e) {
+        if (e.status == 404 && householdId == null) {
+          token = 'verdi-redmond-demo';
+        } else {
+          rethrow;
+        }
+      }
+      if (!mounted || epoch != sessionEpoch) return;
+      nextApi = PlatformApi(token, base: _redmondBase);
+      final result = await nextApi.request('me');
+      if (!mounted || epoch != sessionEpoch) {
+        nextApi.dispose();
+        return;
+      }
+      final household = result['demoHousehold'];
+      final resolvedId = household is Map && household['id'] is String
+          ? household['id'] as String
+          : (householdId ?? 'redmond');
+      setState(() {
+        api = nextApi;
+        data = result;
+        selectedHouseholdId = resolvedId;
+        selectedDemoSources.clear();
+        busy = false;
+        switchingHousehold = false;
+        error = null;
+      });
+      nextApi = null;
+    } catch (e) {
+      nextApi?.dispose();
+      if (!mounted || epoch != sessionEpoch) return;
+      setState(() {
+        busy = false;
+        switchingHousehold = false;
+        error =
+            'Could not load Verdi. Check the API connection. ${e.toString().replaceFirst('Bad state: ', '')}';
+      });
+    }
+  }
+
+  Future<void> pollDemo() async {
+    final currentApi = api;
+    final epoch = sessionEpoch;
+    if (busy ||
+        switchingHousehold ||
+        demoReadingEpoch == epoch ||
+        data == null ||
+        currentApi == null) {
+      return;
+    }
+    final before = data;
+    demoReadingEpoch = epoch;
+    try {
+      final latest = await currentApi.request('me');
+      if (mounted &&
+          !busy &&
+          !switchingHousehold &&
+          epoch == sessionEpoch &&
+          identical(api, currentApi) &&
+          identical(before, data)) {
+        setState(() {
+          data = latest;
+          _pruneSelectedDemoSources(latest);
+        });
+      }
+    } on PlatformRequestError catch (e) {
+      if (e.status == 401 && mounted && !busy && epoch == sessionEpoch) {
+        await switchDemoHousehold(selectedHouseholdId, force: true);
       }
     } catch (_) {
       // Keep the last fetched state available. Refresh can surface connection errors.
     } finally {
-      demoReading = false;
+      if (demoReadingEpoch == epoch) {
+        demoReadingEpoch = null;
+      }
     }
   }
 
   Future<void> refresh({bool remember = false}) async {
+    if (widget.redmondDemo && demoHouseholds.isEmpty) {
+      unawaited(_loadDemoHouseholds());
+    }
+    final currentApi = api;
+    if (currentApi == null) {
+      if (widget.redmondDemo) {
+        await switchDemoHousehold(selectedHouseholdId, force: true);
+      }
+      return;
+    }
+    final epoch = sessionEpoch;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final result = await api!.request(
+      final result = await currentApi.request(
         widget.institutional ? 'institution' : 'me',
       );
-      if (!mounted) return;
-      setState(() => data = result);
+      if (!mounted || epoch != sessionEpoch || !identical(api, currentApi)) {
+        return;
+      }
+      setState(() {
+        data = result;
+        _pruneSelectedDemoSources(result);
+      });
       if (remember && nativeConsumer) {
         try {
-          await secureStorage.write(key: sessionKey, value: api!.token);
+          await secureStorage.write(key: sessionKey, value: currentApi.token);
         } catch (_) {
-          if (mounted) {
+          if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
             setState(
               () => error = 'Could not remember this sign-in on your phone.',
             );
           }
         }
       }
-      if (mounted && nativeConsumer) {
+      if (mounted &&
+          nativeConsumer &&
+          epoch == sessionEpoch &&
+          identical(api, currentApi)) {
         try {
           await configurePhone(result);
         } catch (_) {
-          if (mounted) {
+          if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
             setState(() => error = 'Could not load phone trip settings.');
           }
         }
       }
     } catch (e) {
-      if (e is PlatformRequestError && e.status == 401 && !widget.demo) {
-        await signOut();
-        if (mounted && api == null) {
-          setState(
-            () => error = 'That pilot session is invalid or has expired.',
-          );
-        }
+      if (!mounted || epoch != sessionEpoch || !identical(api, currentApi)) {
         return;
+      }
+      if (e is PlatformRequestError && e.status == 401) {
+        if (widget.redmondDemo) {
+          await switchDemoHousehold(selectedHouseholdId, force: true);
+          return;
+        }
+        if (!widget.demo) {
+          await signOut();
+          if (mounted && api == null) {
+            setState(
+              () => error = 'That pilot session is invalid or has expired.',
+            );
+          }
+          return;
+        }
       }
       if (mounted) {
         setState(
@@ -312,24 +481,33 @@ class _PlatformHomeState extends State<PlatformHome> {
         );
       }
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
+        setState(() => busy = false);
+      }
     }
   }
 
   Future<bool> act(String action, Map<String, dynamic> body) async {
+    final currentApi = api;
+    if (currentApi == null) return false;
+    final epoch = sessionEpoch;
     setState(() {
       busy = true;
       error = null;
     });
     try {
-      final response = await api!.request(action, body);
-      if (!mounted) return false;
+      final response = await currentApi.request(action, body);
+      if (!mounted || epoch != sessionEpoch || !identical(api, currentApi)) {
+        return false;
+      }
       if (action == 'connection' &&
           body['provider'] == 'transport' &&
           body['enabled'] == false) {
         await phone?.setConsent(false);
       }
-      if (!mounted) return false;
+      if (!mounted || epoch != sessionEpoch || !identical(api, currentApi)) {
+        return false;
+      }
       if (action == 'coach') {
         await showDialog<void>(
           context: context,
@@ -349,7 +527,7 @@ class _PlatformHomeState extends State<PlatformHome> {
           ),
         );
       }
-      if (mounted) {
+      if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(switch (action) {
@@ -363,14 +541,16 @@ class _PlatformHomeState extends State<PlatformHome> {
         );
         await refresh();
       }
-      return true;
+      return epoch == sessionEpoch && identical(api, currentApi);
     } catch (e) {
-      if (mounted) {
+      if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
         setState(() => error = e.toString().replaceFirst('Bad state: ', ''));
       }
       return false;
     } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted && epoch == sessionEpoch && identical(api, currentApi)) {
+        setState(() => busy = false);
+      }
     }
   }
 
@@ -442,7 +622,7 @@ class _PlatformHomeState extends State<PlatformHome> {
         ],
       ),
       actions: [
-        if (api != null)
+        if (api != null || widget.redmondDemo)
           IconButton(
             tooltip: 'Refresh data',
             onPressed: busy || phoneBusy ? null : refresh,
@@ -465,9 +645,7 @@ class _PlatformHomeState extends State<PlatformHome> {
             color: lime,
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
             child: Text(
-              widget.redmondDemo
-                  ? 'REDMOND DEMO · Fictional household and simulated provider data'
-                  : 'SYNTHETIC DEMO · Fictional accounts and providers. Rewards and contributions are simulations.',
+              widget.redmondDemo ? _redmondBannerText() : 'SYNTHETIC DEMO · Fictional accounts and providers. Rewards and contributions are simulations.',
               style: const TextStyle(color: ink),
             ),
           ),
@@ -482,12 +660,14 @@ class _PlatformHomeState extends State<PlatformHome> {
                   [
                     data == null,
                     widget.institutional ? institutionTab : tab,
+                    if (widget.redmondDemo) selectedHouseholdId,
                   ].join('|'),
                 ),
                 padding: EdgeInsets.all(
                   MediaQuery.sizeOf(context).width < 600 ? 18 : 36,
                 ),
                 children: [
+                  if (widget.redmondDemo) _demoHouseholdSwitcher(),
                   if (error != null)
                     box(
                       Column(
@@ -504,7 +684,12 @@ class _PlatformHomeState extends State<PlatformHome> {
                         ],
                       ),
                     ),
-                  if (api == null)
+                  if (widget.redmondDemo) ...[
+                    if (data != null)
+                      ...redmondHousehold()
+                    else if (error == null)
+                      _redmondLoadingCard(),
+                  ] else if (api == null)
                     ...login()
                   else if (data != null)
                     ...(widget.institutional ? institution() : consumer()),
@@ -1042,13 +1227,177 @@ class _PlatformHomeState extends State<PlatformHome> {
     }
   }
 
+  String _redmondBannerText() {
+    final city = (_activeDemoHousehold()['city'] as String? ?? '').trim();
+    if (data != null && city.isNotEmpty) {
+      return 'REGIONAL DEMO · $city · Fictional household and simulated provider data';
+    }
+    return 'REGIONAL DEMO · Fictional households and simulated provider data';
+  }
+
+  Map<String, dynamic>? _catalogHouseholdById(String? id) {
+    if (id == null) return null;
+    for (final household in demoHouseholds) {
+      if (household['id'] == id) return household;
+    }
+    return null;
+  }
+
+  Map<String, dynamic> _activeDemoHousehold() {
+    final fromSnapshot = data?['demoHousehold'];
+    if (fromSnapshot is Map) {
+      return Map<String, dynamic>.from(fromSnapshot);
+    }
+    final fromCatalog = _catalogHouseholdById(selectedHouseholdId);
+    if (fromCatalog != null) return fromCatalog;
+    final user = data?['user'];
+    return {
+      'id': selectedHouseholdId ?? 'redmond',
+      'name': user is Map && user['name'] is String
+          ? user['name'] as String
+          : 'Cedar Household',
+      'city': user is Map && user['region'] is String
+          ? user['region'] as String
+          : 'Redmond, Washington',
+      'scenario': 'A fictional household in Redmond, Washington.',
+    };
+  }
+
+  String _householdChipLabel(Map<String, dynamic> household) {
+    final name = (household['name'] as String? ?? '').trim();
+    final city = (household['city'] as String? ?? '').trim();
+    if (name.isEmpty) {
+      return city.isEmpty ? (household['id'] as String? ?? 'Household') : city;
+    }
+    if (city.isEmpty) return name;
+    return '$name · $city';
+  }
+
+  bool _isDemoSourceEligible(Map source) {
+    final status = source['status'];
+    return status == 'disconnected' || status == 'auth_required';
+  }
+
+  void _pruneSelectedDemoSources(Map<String, dynamic> snapshot) {
+    if (!widget.redmondDemo || selectedDemoSources.isEmpty) return;
+    final eligibleIds = (snapshot['demoSources'] as List? ?? const [])
+        .whereType<Map>()
+        .where(_isDemoSourceEligible)
+        .map((source) => source['id'])
+        .whereType<String>()
+        .toSet();
+    selectedDemoSources.retainAll(eligibleIds);
+  }
+
+  String _demoSourceLabel(Map source) {
+    final label = source['label'];
+    if (label is String && label.trim().isNotEmpty) return label.trim();
+    final id = source['id'] as String;
+    return switch (id) {
+      'utility' => 'PSE electricity and gas',
+      'orca' => 'ORCA transit activity',
+      'bank' => 'Bank transactions',
+      _ => id,
+    };
+  }
+
+  String _demoSourceDescription(Map source) {
+    final description = source['description'];
+    if (description is String && description.trim().isNotEmpty) {
+      return description.trim();
+    }
+    final id = source['id'] as String;
+    return switch (id) {
+      'utility' => 'Daily electricity use and natural gas statements',
+      'orca' => 'Card tap time, location, agency and fare',
+      _ => 'Transaction dates, amounts and pending or posted status',
+    };
+  }
+
+  Widget _demoHouseholdSwitcher() {
+    if (demoHouseholds.isEmpty) return const SizedBox.shrink();
+    final activeId =
+        selectedHouseholdId ??
+        (data?['demoHousehold'] is Map
+            ? data!['demoHousehold']['id'] as String?
+            : null) ??
+        'redmond';
+    return Semantics(
+      container: true,
+      label: 'Demo household and city switcher',
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Demo household & city',
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w600, color: ink),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                children: [
+                  for (final household in demoHouseholds)
+                    ChoiceChip(
+                      key: ValueKey('demo-household-${household['id']}'),
+                      label: Text(_householdChipLabel(household)),
+                      selected: household['id'] == activeId,
+                      onSelected: (_) {
+                        final id = household['id'] as String;
+                        if (id != activeId || error != null) {
+                          unawaited(switchDemoHousehold(id));
+                        }
+                      },
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _redmondLoadingCard() {
+    final target = _catalogHouseholdById(selectedHouseholdId);
+    final label = target != null ? _householdChipLabel(target) : 'household';
+    return box(
+      Row(
+        children: [
+          const SizedBox(
+            width: 18,
+            height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Text('Loading $label…')),
+        ],
+      ),
+    );
+  }
+
   List<Widget> redmondHousehold() {
+    final household = _activeDemoHousehold();
+    final householdName = (household['name'] as String? ?? 'Cedar Household')
+        .trim();
+    final city = (household['city'] as String? ?? '').trim();
+    final scenario = (household['scenario'] as String? ?? '').trim();
     final sources = (data!['demoSources'] as List? ?? const []).cast<Map>();
     if (tab == 0) {
       final active = sources.where((source) => source['status'] == 'ok').length;
       return [
-        title('Cedar Household'),
-        const Text('A fictional household in Redmond, Washington.'),
+        title(householdName),
+        if (city.isNotEmpty)
+          Text(
+            '$city · Fictional demo household',
+            style: Theme.of(context).textTheme.titleSmall
+                ?.copyWith(color: Colors.black54),
+          ),
+        if (scenario.isNotEmpty) ...[const SizedBox(height: 6), Text(scenario)],
         const SizedBox(height: 16),
         box(Text('$active of ${sources.length} sources syncing automatically')),
         const SizedBox(height: 16),
@@ -1059,37 +1408,123 @@ class _PlatformHomeState extends State<PlatformHome> {
         ),
       ];
     }
+    final eligibleSources = sources.where(_isDemoSourceEligible).toList();
+    final selectedEligible = eligibleSources
+        .where((source) => selectedDemoSources.contains(source['id']))
+        .toList();
+    final allEligibleSelected =
+        eligibleSources.isNotEmpty &&
+        selectedEligible.length == eligibleSources.length;
     return [
-      title('Cedar Household connections'),
+      title('$householdName connections'),
+      if (city.isNotEmpty || scenario.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Text(
+            [city, scenario].where((part) => part.isNotEmpty).join(' · '),
+            style: const TextStyle(color: Colors.black54),
+          ),
+        ),
       const Text(
-        'Authorize each simulated source once. The server keeps collecting while this page is closed.',
+        'Select eligible simulated sources to authorize together once, or authorize each source individually. The server keeps collecting while this page is closed.',
       ),
       const SizedBox(height: 12),
+      if (eligibleSources.isNotEmpty)
+        box(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Authorize sources together',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600, color: ink),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${selectedEligible.length} of ${eligibleSources.length} eligible sources selected',
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  button(
+                    selectedEligible.isEmpty
+                        ? 'Authorize selected'
+                        : 'Authorize selected (${selectedEligible.length})',
+                    selectedEligible.isEmpty
+                        ? null
+                        : () => authorizeDemoSources(selectedEligible),
+                    icon: Icons.done_all,
+                  ),
+                  TextButton(
+                    onPressed: busy
+                        ? null
+                        : () => setState(() {
+                            if (allEligibleSelected) {
+                              selectedDemoSources.clear();
+                            } else {
+                              selectedDemoSources
+                                ..clear()
+                                ..addAll(
+                                  eligibleSources.map(
+                                    (source) => source['id'] as String,
+                                  ),
+                                );
+                            }
+                          }),
+                    child: Text(
+                      allEligibleSelected
+                          ? 'Clear selection'
+                          : 'Select all eligible',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       for (final source in sources) redmondSource(source),
     ];
   }
 
   Widget redmondSource(Map source) {
     final id = source['id'] as String;
-    final name = switch (id) {
-      'utility' => 'PSE electricity and gas',
-      'orca' => 'ORCA transit activity',
-      'bank' => 'Bank transactions',
-      _ => id,
-    };
-    final permission = switch (id) {
-      'utility' => 'Daily electricity use and natural gas statements',
-      'orca' => 'Card tap time, location, agency and fare',
-      _ => 'Transaction dates, amounts and pending or posted status',
-    };
+    final name = _demoSourceLabel(source);
+    final permission = _demoSourceDescription(source);
     final status = source['status'];
+    final eligible = _isDemoSourceEligible(source);
+    final selected = eligible && selectedDemoSources.contains(id);
     final lastSynced = source['lastSyncedAt'];
     final records = (source['records'] as List? ?? const []).cast<Map>();
     return box(
       Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(name, style: Theme.of(context).textTheme.titleLarge),
+          if (eligible)
+            CheckboxListTile(
+              key: ValueKey('demo-source-select-$id'),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(name, style: Theme.of(context).textTheme.titleLarge),
+              subtitle: Text(permission),
+              value: selected,
+              onChanged: busy
+                  ? null
+                  : (checked) => setState(() {
+                      if (checked == true) {
+                        selectedDemoSources.add(id);
+                      } else {
+                        selectedDemoSources.remove(id);
+                      }
+                    }),
+            )
+          else ...[
+            Text(name, style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 4),
+            Text(permission, style: const TextStyle(color: Colors.black54)),
+          ],
           const SizedBox(height: 6),
           Text(switch (status) {
             'ok' => 'Syncing automatically',
@@ -1110,7 +1545,7 @@ class _PlatformHomeState extends State<PlatformHome> {
             spacing: 10,
             runSpacing: 6,
             children: [
-              if (status == 'disconnected' || status == 'auth_required')
+              if (eligible)
                 button(
                   status == 'auth_required'
                       ? 'Reconnect $name'
@@ -1139,17 +1574,43 @@ class _PlatformHomeState extends State<PlatformHome> {
     );
   }
 
-  Future<void> authorizeDemoSource(
-    String id,
-    String name,
-    String permission,
-  ) async {
+  Future<void> authorizeDemoSources(List<Map> selectedSources) async {
+    if (selectedSources.isEmpty) return;
+    final epoch = sessionEpoch;
+    final ids = selectedSources
+        .map((source) => source['id'] as String)
+        .toList();
     final allowed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Authorize $name'),
-        content: Text(
-          '$permission. This demo uses fictional records and never asks for a password.',
+        title: Text(
+          'Authorize ${selectedSources.length} simulated '
+          '${selectedSources.length == 1 ? 'source' : 'sources'}',
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final source in selectedSources)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _demoSourceLabel(source),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      Text(_demoSourceDescription(source)),
+                    ],
+                  ),
+                ),
+              const Text(
+                'This demo uses fictional records and never asks for a password.',
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(
@@ -1163,7 +1624,42 @@ class _PlatformHomeState extends State<PlatformHome> {
         ],
       ),
     );
-    if (allowed == true && mounted) await act('demo-authorize', {'source': id});
+    if (allowed == true && mounted && epoch == sessionEpoch) {
+      final ok = await act('demo-authorize', {'sources': ids});
+      if (ok && mounted && epoch == sessionEpoch) {
+        setState(() => selectedDemoSources.removeAll(ids));
+      }
+    }
+  }
+
+  Future<void> authorizeDemoSource(
+    String id,
+    String name,
+    String permission,
+  ) async {
+    final epoch = sessionEpoch;
+    final allowed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Authorize $name'),
+        content: Text(
+          '$permission\n\nThis demo uses fictional records and never asks for a password.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Allow demo access'),
+          ),
+        ],
+      ),
+    );
+    if (allowed == true && mounted && epoch == sessionEpoch) {
+      await act('demo-authorize', {'source': id});
+    }
   }
 
   List<Widget> connections() {
@@ -1227,9 +1723,9 @@ class _PlatformHomeState extends State<PlatformHome> {
       box(
         const ListTile(
           contentPadding: EdgeInsets.zero,
-          title: Text('PSE electricity and gas'),
+          title: Text('Electricity and natural gas'),
           subtitle: Text(
-            'Automatic access for Redmond residential accounts is pending.',
+            'Automatic residential access is pending. Availability depends on your service address and account.',
           ),
         ),
       ),

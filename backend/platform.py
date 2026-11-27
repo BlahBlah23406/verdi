@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import secrets
 import sqlite3
 import threading
 import time
@@ -17,6 +18,7 @@ import urllib.request
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 EPA = 'https://www.epa.gov/system/files/documents/2025-01/ghg-emission-factors-hub-2025.pdf'
 FACTORS = {
@@ -31,7 +33,11 @@ NATIONAL_VERSION = 'us-epa-2025-v1'
 NORTHWEST_VERSION = 'nwpp-epa-2025-v1'
 NORTHWEST_KG_PER_KWH = (631.7 + .054 * 28 + .008 * 265) * .45359237 / 1000
 REGIONS = {'us': 'US national fallback', 'nwpp': 'WECC Northwest (NWPP)',
-           'redmond': 'Redmond, WA (NWPP)'}
+           'redmond': 'Redmond, WA (NWPP)', 'bellevue': 'Bellevue, WA (NWPP)',
+           'sammamish': 'Sammamish, WA (NWPP)', 'seattle': 'Seattle, WA (NWPP)',
+           'renton': 'Renton, WA (NWPP)', 'tacoma': 'Tacoma, WA (NWPP)'}
+WASHINGTON_PILOT_REGIONS = {key for key, region in REGIONS.items() if region.endswith(', WA (NWPP)')}
+NORTHWEST_REGIONS = {REGIONS[key] for key in WASHINGTON_PILOT_REGIONS | {'nwpp'}}
 
 
 class Problem(Exception):
@@ -144,7 +150,7 @@ class Platform:
                 raise Problem('Use the phone trip review endpoint for phone summaries.')
             # Submeters remain supporting evidence until an explicit meter boundary model exists.
             status = 'supporting' if provider == 'iot' else 'pending'
-            regional = kind == 'electricity' and user['region'] in (REGIONS['nwpp'], REGIONS['redmond'])
+            regional = kind == 'electricity' and user['region'] in NORTHWEST_REGIONS
             factor = NORTHWEST_KG_PER_KWH if regional else FACTORS[kind][0]
             version = NORTHWEST_VERSION if regional else NATIONAL_VERSION
             prepared.append((f'{provider}:{rid}', uid, provider, day.isoformat(), kind, q, str(r.get('description', provider))[:240], status, factor, version))
@@ -484,6 +490,15 @@ class Platform:
 
 
 def handler(platform, sessions, static=None):
+    sessions = dict(sessions)
+    demo_tokens = {}
+    if platform.redmond:
+        for household in platform.redmond.households():
+            key = household['id']
+            token = secrets.token_urlsafe(24)
+            demo_tokens[key] = token
+            sessions[token] = {'user': platform.redmond.user_for_household(key), 'role': 'consumer'}
+
     class Handler(BaseHTTPRequestHandler):
         timeout = 40
 
@@ -540,6 +555,19 @@ def handler(platform, sessions, static=None):
 
         def route(self):
             try:
+                url = urlsplit(self.path)
+                path = url.path
+                if path in ('/api/demo/households', '/api/demo/session'):
+                    if not platform.redmond or self.command != 'GET':
+                        raise Problem('Not found.', 404)
+                    if path == '/api/demo/households':
+                        self.reply(200, {'households': platform.redmond.households()})
+                    else:
+                        selected = parse_qs(url.query, keep_blank_values=True).get('household', ['redmond'])
+                        if len(selected) != 1 or selected[0] not in demo_tokens:
+                            raise Problem('Demo household not found.', 404)
+                        self.reply(200, {'token': demo_tokens[selected[0]]})
+                    return
                 authorization = self.headers.get('Authorization', '')
                 token = authorization[7:].encode() if authorization.startswith('Bearer ') else b''
                 session = next((v for k, v in sessions.items() if token and hmac.compare_digest(k.encode(), token)), None)
@@ -555,7 +583,6 @@ def handler(platform, sessions, static=None):
                     body = json.loads(self.rfile.read(length) or b'{}')
                     if not isinstance(body, dict):
                         raise Problem('JSON object required.')
-                path = self.path.split('?')[0]
                 if path == '/api/me' and self.command == 'GET':
                     if session.get('role') != 'consumer':
                         raise Problem('Consumer session required.', 403)

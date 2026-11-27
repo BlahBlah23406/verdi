@@ -36,7 +36,7 @@ class RedmondDemoTests(unittest.TestCase):
 
     def count(self, source=None):
         with self.app.db() as c:
-            q = 'SELECT count(*) FROM redmond_records' + (' WHERE source=?' if source else '')
+            q = "SELECT count(*) FROM redmond_records WHERE user='redmond-demo'" + (' AND source=?' if source else '')
             return c.execute(q, (source,) if source else ()).fetchone()[0]
 
     def authorize_all(self):
@@ -68,11 +68,11 @@ class RedmondDemoTests(unittest.TestCase):
         self.authorize_all()
         self.demo.run_once(); self.demo.run_once()
         with self.app.db() as c:
-            self.assertEqual({r[0] for r in c.execute('SELECT sim_day FROM redmond_sources')}, {1})
+            self.assertEqual({r[0] for r in c.execute("SELECT sim_day FROM redmond_sources WHERE user='redmond-demo'")}, {1})
         self.clock.t += 9; self.demo.run_once()
         self.clock.t += 1; self.demo.run_once()
         with self.app.db() as c:
-            self.assertEqual({r[0] for r in c.execute('SELECT sim_day FROM redmond_sources')}, {2})
+            self.assertEqual({r[0] for r in c.execute("SELECT sim_day FROM redmond_sources WHERE user='redmond-demo'")}, {2})
 
     def test_utility_distinct_electricity_and_gas_periods(self):
         self.demo.mutate('redmond-demo', 'demo-authorize', {'source': 'utility'})
@@ -114,7 +114,7 @@ class RedmondDemoTests(unittest.TestCase):
         self.assertEqual(calls.count('syn-3'), 2)  # day 4 mutation restarted from the saved cursor
         with self.app.db() as c:
             rows = {r['id']: dict(r) for r in c.execute("SELECT * FROM redmond_records WHERE source='bank'")}
-            cursor = c.execute("SELECT cursor FROM redmond_sources WHERE source='bank'").fetchone()[0]
+            cursor = c.execute("SELECT cursor FROM redmond_sources WHERE user='redmond-demo' AND source='bank'").fetchone()[0]
         self.assertEqual(cursor, 'syn-6')
         self.assertEqual(rows['bank:syn-pend-1']['state'], 'replaced')  # kept as evidence, hidden from view
         self.assertEqual(rows['bank:syn-post-1']['state'], 'active')
@@ -136,7 +136,7 @@ class RedmondDemoTests(unittest.TestCase):
         self.assertGreater(self.count(), total)
         again.run_once()  # same instant: not due again
         with self.app.db() as c:
-            self.assertEqual({r[0] for r in c.execute('SELECT sim_day FROM redmond_sources')}, {3})
+            self.assertEqual({r[0] for r in c.execute("SELECT sim_day FROM redmond_sources WHERE user='redmond-demo'")}, {3})
 
     def test_failure_retries_and_reconnect_keeps_evidence(self):
         faults = {}
@@ -149,7 +149,7 @@ class RedmondDemoTests(unittest.TestCase):
         self.assertEqual(self.src('utility', demo)['status'], 'ok')
         self.assertEqual(self.src('orca', demo)['status'], 'auth_required')
         with self.app.db() as c:
-            st = {r['source']: dict(r) for r in c.execute('SELECT * FROM redmond_sources')}
+            st = {r['source']: dict(r) for r in c.execute("SELECT * FROM redmond_sources WHERE user='redmond-demo'")}
         self.assertEqual((st['utility']['sim_day'], st['utility']['failures']), (1, 1))
         self.assertEqual((st['bank']['cursor'], st['bank']['failures']), ('syn-1', 1))
         faults.clear(); faults['bank'] = 'auth'
@@ -166,7 +166,7 @@ class RedmondDemoTests(unittest.TestCase):
         self.assertEqual(self.src('orca', demo)['status'], 'waiting')
         demo.run_once()
         with self.app.db() as c:
-            st = {r['source']: dict(r) for r in c.execute('SELECT * FROM redmond_sources')}
+            st = {r['source']: dict(r) for r in c.execute("SELECT * FROM redmond_sources WHERE user='redmond-demo'")}
             gens = {r[0] for r in c.execute("SELECT generation FROM redmond_records WHERE source='orca'")}
         self.assertEqual((st['orca']['sim_day'], st['orca']['generation']), (2, 2))
         self.assertEqual(st['bank']['cursor'], 'syn-2')
@@ -182,7 +182,7 @@ class RedmondDemoTests(unittest.TestCase):
         self.assertTrue(self.src('utility')['records'])  # retained
         self.tick()
         with self.app.db() as c:
-            st = {r['source']: r['sim_day'] for r in c.execute('SELECT * FROM redmond_sources')}
+            st = {r['source']: r['sim_day'] for r in c.execute("SELECT * FROM redmond_sources WHERE user='redmond-demo'")}
         self.assertEqual(st, {'utility': 1, 'orca': 2, 'bank': 1})
         self.assertEqual(self.count(), n + 2)
         with self.assertRaises(ValueError):
@@ -194,15 +194,15 @@ class RedmondDemoTests(unittest.TestCase):
         threads = [threading.Thread(target=d.run_once) for d in demos]
         [t.start() for t in threads]; [t.join() for t in threads]
         with self.app.db() as c:
-            self.assertEqual({r[0] for r in c.execute('SELECT sim_day FROM redmond_sources')}, {1})
+            self.assertEqual({r[0] for r in c.execute("SELECT sim_day FROM redmond_sources WHERE user='redmond-demo'")}, {1})
         n = self.count()
         with self.app.db() as c:  # replay a stale cursor: inserts stay idempotent
-            c.execute("UPDATE redmond_sources SET sim_day=0,cursor='',next_due=0")
+            c.execute("UPDATE redmond_sources SET sim_day=0,cursor='',next_due=0 WHERE user='redmond-demo'")
         self.demo.run_once()
         self.assertEqual(self.count(), n)
         self.demo.mutate('redmond-demo', 'demo-authorize', {'source': 'utility'})  # already active: no-op
         with self.app.db() as c:
-            self.assertEqual(c.execute("SELECT generation FROM redmond_sources WHERE source='utility'").fetchone()[0], 1)
+            self.assertEqual(c.execute("SELECT generation FROM redmond_sources WHERE user='redmond-demo' AND source='utility'").fetchone()[0], 1)
 
     def test_account_isolation_and_validation(self):
         self.authorize_all(); self.tick(2)

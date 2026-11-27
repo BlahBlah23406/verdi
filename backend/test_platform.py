@@ -203,7 +203,8 @@ class PlatformTests(unittest.TestCase):
             req=urllib.request.Request(f'http://127.0.0.1:{server.server_port}/api/{path}',headers={'Authorization':'Bearer '+token,'Content-Type':'application/json'},data=json.dumps(body).encode() if body is not None else None)
             return urllib.request.urlopen(req)
         try:
-            for path,token,status in [('me','missing',401),('institution','consumer',403),('me','analyst',403)]:
+            for path,token,status in [('me','missing',401),('institution','consumer',403),('me','analyst',403),
+                                      ('demo/households','consumer',404),('demo/session','consumer',404)]:
                 with self.assertRaises(urllib.error.HTTPError) as err: request(path,token)
                 self.assertEqual(err.exception.code,status)
             with request('institution','analyst') as response:

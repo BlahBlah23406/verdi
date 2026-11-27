@@ -24,9 +24,9 @@ if __name__ == '__main__':
     p.add_argument('--meter-timezone', help='IANA meter time zone, e.g. America/Chicago.')
     args = p.parse_args()
     timezone = args.meter_timezone
-    if args.region == 'redmond':
+    if args.region in v.WASHINGTON_PILOT_REGIONS:
         if timezone and timezone != 'America/Los_Angeles':
-            p.error('Redmond meters use America/Los_Angeles.')
+            p.error('Washington pilot meters use America/Los_Angeles.')
         timezone = 'America/Los_Angeles'
     if timezone:
         try:

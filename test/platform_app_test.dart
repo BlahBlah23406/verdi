@@ -88,10 +88,10 @@ void main() {
         await tester.scrollUntilVisible(find.text('Automatically synced'), 200);
         expect(find.text('Automatically synced'), findsOneWidget);
         await tester.scrollUntilVisible(
-          find.text('PSE electricity and gas'),
+          find.text('Electricity and natural gas'),
           200,
         );
-        expect(find.text('PSE electricity and gas'), findsOneWidget);
+        expect(find.text('Electricity and natural gas'), findsOneWidget);
         expect(
           requests.where((path) => path == '/api/connection'),
           hasLength(1),
